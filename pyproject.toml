@@ -1,0 +1,21 @@
+[project]
+name = "superwhisper"
+version = "0.1.0"
+description = "Speech-to-text for Linux using local Whisper models"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "faster-whisper>=1.2.1",
+    "numpy>=2.3.5",
+    "pygobject>=3.54.5",
+    "sounddevice>=0.5.3",
+]
+
+[project.scripts]
+superwhisper = "superwhisper.main:main"
+
+[tool.uv]
+package = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
