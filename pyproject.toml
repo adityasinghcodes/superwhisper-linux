@@ -9,6 +9,7 @@ dependencies = [
     "numpy>=2.3.5",
     "pygobject>=3.54.5",
     "sounddevice>=0.5.3",
+    "nvidia-cublas-cu12>=12.4",
 ]
 
 [project.scripts]

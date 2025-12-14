@@ -1,7 +1,24 @@
 """Main entry point for SuperWhisper Linux."""
 
+import os
 import sys
 import threading
+
+# Preload CUDA 12 libraries for ctranslate2 compatibility
+def _preload_cuda12_libs():
+    """Preload CUDA 12 libraries from pip-installed nvidia packages."""
+    try:
+        import ctypes
+        import nvidia.cublas
+        lib_path = os.path.join(nvidia.cublas.__path__[0], "lib")
+        for lib in ["libcublas.so.12", "libcublasLt.so.12"]:
+            lib_file = os.path.join(lib_path, lib)
+            if os.path.exists(lib_file):
+                ctypes.CDLL(lib_file, mode=ctypes.RTLD_GLOBAL)
+    except (ImportError, IndexError, OSError):
+        pass
+
+_preload_cuda12_libs()
 
 
 def keybind():
@@ -89,7 +106,8 @@ def main():
             )
             self.tray: TrayIcon | None = None
             self.hotkey_listener: HotkeyListener | None = None
-            self._transcribe_lock = threading.Lock()
+            self._cancel_transcription = threading.Event()
+            self._transcribe_thread: threading.Thread | None = None
 
             # Restore saved microphone
             if self.config.microphone:
@@ -132,22 +150,28 @@ def main():
                 logger.warning("No audio recorded")
                 return
 
-            # Transcribe in background thread with lock
-            def transcribe():
-                if not self._transcribe_lock.acquire(blocking=False):
-                    logger.warning("Previous transcription still running, skipping")
-                    return
-                try:
-                    text = self.transcriber.transcribe(audio, self.config.language)
-                    if text:
-                        logger.info("Pasting: %s", text[:50] + "..." if len(text) > 50 else text)
-                        paste_text(text)
-                    else:
-                        logger.info("No speech detected")
-                finally:
-                    self._transcribe_lock.release()
+            # Cancel any previous transcription
+            if self._transcribe_thread and self._transcribe_thread.is_alive():
+                logger.info("Cancelling previous transcription")
+                self._cancel_transcription.set()
+                self._transcribe_thread.join(timeout=0.1)
 
-            threading.Thread(target=transcribe, daemon=True).start()
+            # Reset cancel flag for new transcription
+            self._cancel_transcription.clear()
+
+            def transcribe():
+                text = self.transcriber.transcribe(audio, self.config.language)
+                if self._cancel_transcription.is_set():
+                    logger.info("Transcription cancelled")
+                    return
+                if text:
+                    logger.info("Pasting: %s", text[:50] + "..." if len(text) > 50 else text)
+                    paste_text(text)
+                else:
+                    logger.info("No speech detected")
+
+            self._transcribe_thread = threading.Thread(target=transcribe, daemon=True)
+            self._transcribe_thread.start()
 
         def _on_quit(self):
             """Called when quit is requested."""
