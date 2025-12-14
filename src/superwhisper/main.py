@@ -1,6 +1,8 @@
 """Main entry point for SuperWhisper Linux."""
 
 import os
+import queue
+import subprocess
 import sys
 import threading
 
@@ -87,7 +89,6 @@ def main():
 
     # Now safe to import everything
     from .audio import AudioRecorder, list_audio_devices
-    from .clipboard import paste_text
     from .config import Config
     from .hotkey import HotkeyListener
     from .transcribe import Transcriber
@@ -106,8 +107,12 @@ def main():
             )
             self.tray: TrayIcon | None = None
             self.hotkey_listener: HotkeyListener | None = None
-            self._cancel_transcription = threading.Event()
-            self._transcribe_thread: threading.Thread | None = None
+
+            # Worker thread for transcription (single thread, no concurrency issues)
+            self._audio_queue: queue.Queue = queue.Queue()
+            worker = threading.Thread(target=self._worker_loop, daemon=True)
+            worker.start()
+            logger.info("Worker thread started")
 
             # Restore saved microphone
             if self.config.microphone:
@@ -139,7 +144,7 @@ def main():
                 self.tray.set_recording(True)
 
         def _stop_recording(self):
-            """Stop recording and transcribe."""
+            """Stop recording and queue for transcription."""
             logger.info("Recording stopped")
             if self.tray:
                 self.tray.set_recording(False)
@@ -150,28 +155,47 @@ def main():
                 logger.warning("No audio recorded")
                 return
 
-            # Cancel any previous transcription
-            if self._transcribe_thread and self._transcribe_thread.is_alive():
-                logger.info("Cancelling previous transcription")
-                self._cancel_transcription.set()
-                self._transcribe_thread.join(timeout=0.1)
+            # Queue audio for worker thread
+            import time
+            logger.info("[%.3f] Queuing audio", time.time() % 1000)
+            self._audio_queue.put(audio)
 
-            # Reset cancel flag for new transcription
-            self._cancel_transcription.clear()
+        def _worker_loop(self):
+            """Worker thread that processes audio queue sequentially."""
+            import time
+            logger.info("Worker loop running")
+            while True:
+                try:
+                    audio = self._audio_queue.get()
+                    start = time.time()
+                    logger.info("[%.3f] Got audio (%.1fs)", time.time() % 1000, len(audio) / 16000)
 
-            def transcribe():
-                text = self.transcriber.transcribe(audio, self.config.language)
-                if self._cancel_transcription.is_set():
-                    logger.info("Transcription cancelled")
-                    return
-                if text:
-                    logger.info("Pasting: %s", text[:50] + "..." if len(text) > 50 else text)
-                    paste_text(text)
-                else:
-                    logger.info("No speech detected")
+                    # Drain queue to get only the latest audio
+                    while not self._audio_queue.empty():
+                        try:
+                            audio = self._audio_queue.get_nowait()
+                            logger.info("Skipping older recording, using latest")
+                        except queue.Empty:
+                            break
 
-            self._transcribe_thread = threading.Thread(target=transcribe, daemon=True)
-            self._transcribe_thread.start()
+                    text = self.transcriber.transcribe(audio, self.config.language)
+                    logger.info("Transcription took %.1fs", time.time() - start)
+
+                    # Skip if newer audio arrived during transcription
+                    if not self._audio_queue.empty():
+                        logger.info("Newer recording available, skipping clipboard")
+                        continue
+
+                    if text:
+                        logger.info("Clipboard: %s", text[:50] + "..." if len(text) > 50 else text)
+                        # Don't wait for wl-copy - it stays running to serve clipboard
+                        subprocess.Popen(["wl-copy", text], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    else:
+                        logger.info("No speech detected")
+                except Exception as e:
+                    logger.error("Worker error: %s", e)
+                    import traceback
+                    logger.error(traceback.format_exc())
 
         def _on_quit(self):
             """Called when quit is requested."""

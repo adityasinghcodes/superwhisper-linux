@@ -2,6 +2,7 @@
 
 import numpy as np
 from faster_whisper import WhisperModel
+from huggingface_hub import snapshot_download, try_to_load_from_cache
 
 from .logging_config import get_logger
 
@@ -25,6 +26,25 @@ def check_cuda_available() -> bool:
         return len(cuda_types) > 0
     except Exception:
         return False
+
+
+def ensure_model_downloaded(model_size: str) -> None:
+    """Download model with progress bar if not cached."""
+    repo_id = f"Systran/faster-whisper-{model_size}"
+
+    # Check if model is already cached by looking for model.bin
+    cached = try_to_load_from_cache(repo_id, "model.bin")
+    if cached is not None:
+        return  # Already downloaded
+
+    size_info = MODEL_INFO.get(model_size, "")
+    logger.info("Downloading model %s %s...", model_size, size_info)
+    print(f"Downloading Whisper model: {model_size} {size_info}")
+    print("This only happens once...")
+
+    # Download with default progress bar (tqdm)
+    snapshot_download(repo_id)
+    print("Download complete!")
 
 
 class Transcriber:
@@ -58,6 +78,9 @@ class Transcriber:
             compute_type = "float16" if device == "cuda" else "int8"
         else:
             compute_type = self._requested_compute_type
+
+        # Download model if not cached (shows progress bar)
+        ensure_model_downloaded(self.model_size)
 
         size_info = MODEL_INFO.get(self.model_size, "unknown size")
         logger.info("Loading Whisper model: %s (%s)", self.model_size, size_info)
