@@ -91,6 +91,7 @@ def main():
     from .audio import AudioRecorder, list_audio_devices
     from .config import Config
     from .hotkey import HotkeyListener
+    from .notifications import NotificationManager
     from .transcribe import Transcriber
     from .tray import TrayIcon
 
@@ -107,6 +108,7 @@ def main():
             )
             self.tray: TrayIcon | None = None
             self.hotkey_listener: HotkeyListener | None = None
+            self.notifications = NotificationManager(self.config)
 
             # Worker thread for transcription (single thread, no concurrency issues)
             self._audio_queue: queue.Queue = queue.Queue()
@@ -142,23 +144,32 @@ def main():
             self.recorder.start()
             if self.tray:
                 self.tray.set_recording(True)
+            self.notifications.notify_recording_started()
 
         def _stop_recording(self):
             """Stop recording and queue for transcription."""
             logger.info("Recording stopped")
             if self.tray:
                 self.tray.set_recording(False)
+                self.tray.set_transcribing(True)
 
             audio = self.recorder.stop()
 
             if len(audio) == 0:
                 logger.warning("No audio recorded")
+                self.notifications.notify_error("No audio recorded")
+                if self.tray:
+                    self.tray.set_transcribing(False)
                 return
+
+            self.notifications.notify_recording_stopped()
 
             # Queue audio for worker thread
             import time
             logger.info("[%.3f] Queuing audio", time.time() % 1000)
             self._audio_queue.put(audio)
+            if self.tray:
+                self.tray.set_queue_size(self._audio_queue.qsize())
 
         def _worker_loop(self):
             """Worker thread that processes audio queue sequentially."""
@@ -170,6 +181,10 @@ def main():
                     start = time.time()
                     logger.info("[%.3f] Got audio (%.1fs)", time.time() % 1000, len(audio) / 16000)
 
+                    # Update queue size display
+                    if self.tray:
+                        self.tray.set_queue_size(self._audio_queue.qsize())
+
                     # Drain queue to get only the latest audio
                     while not self._audio_queue.empty():
                         try:
@@ -179,23 +194,34 @@ def main():
                             break
 
                     text = self.transcriber.transcribe(audio, self.config.language)
-                    logger.info("Transcription took %.1fs", time.time() - start)
+                    duration = time.time() - start
+                    logger.info("Transcription took %.1fs", duration)
 
                     # Skip if newer audio arrived during transcription
                     if not self._audio_queue.empty():
                         logger.info("Newer recording available, skipping clipboard")
                         continue
 
+                    # Update tray state
+                    if self.tray:
+                        self.tray.set_transcribing(False)
+                        self.tray.set_queue_size(0)
+
                     if text:
                         logger.info("Clipboard: %s", text[:50] + "..." if len(text) > 50 else text)
                         # Don't wait for wl-copy - it stays running to serve clipboard
                         subprocess.Popen(["wl-copy", text], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        self.notifications.notify_transcription_complete(text, duration)
                     else:
                         logger.info("No speech detected")
+                        self.notifications.notify_no_speech()
                 except Exception as e:
                     logger.error("Worker error: %s", e)
                     import traceback
                     logger.error(traceback.format_exc())
+                    self.notifications.notify_error(str(e))
+                    if self.tray:
+                        self.tray.set_transcribing(False)
 
         def _on_quit(self):
             """Called when quit is requested."""
@@ -222,6 +248,13 @@ def main():
             # Pre-load the model
             self.transcriber.load_model()
 
+            # Initialize notifications on main thread
+            self.notifications.initialize()
+
+            # Build model info string for tray
+            device_name = self.transcriber._actual_device.upper()
+            model_info = f"{self.config.model} ({device_name})"
+
             # Set up signal listener
             self.hotkey_listener = HotkeyListener(
                 hotkey=self.config.hotkey,
@@ -234,6 +267,8 @@ def main():
                 on_quit=self._on_quit,
                 on_device_change=self._on_device_change,
                 saved_device_name=self.config.microphone,
+                model_info=model_info if self.config.show_model_info else "",
+                show_timer=self.config.show_recording_timer,
             )
 
             logger.info("=" * 50)

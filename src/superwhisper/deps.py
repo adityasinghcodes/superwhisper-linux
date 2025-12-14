@@ -49,6 +49,18 @@ def check_all() -> list[MissingDep]:
                 description="GUI toolkit",
             ))
 
+    # Check libnotify for desktop notifications
+    try:
+        import gi
+        gi.require_version("Notify", "0.7")
+        from gi.repository import Notify  # noqa: F401
+    except ValueError:
+        missing.append(MissingDep(
+            name="libnotify",
+            install_cmd="sudo pacman -S libnotify",
+            description="desktop notifications",
+        ))
+
     return missing
 
 

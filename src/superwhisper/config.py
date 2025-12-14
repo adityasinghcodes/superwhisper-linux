@@ -20,6 +20,14 @@ class Config:
     compute_type: str = "auto"  # auto, float16, int8, float32
     microphone: str | None = None  # Device name (not index - indices change!)
 
+    # Notification settings
+    notifications_enabled: bool = True
+    audio_feedback_enabled: bool = False  # Disabled by default (requires GStreamer)
+
+    # Tray settings
+    show_model_info: bool = True
+    show_recording_timer: bool = True
+
     @classmethod
     def get_config_dir(cls) -> Path:
         """Get the configuration directory path."""
