@@ -166,8 +166,8 @@ class NotificationManager:
             except Exception as e:
                 logger.warning("Failed to show recording notification: %s", e)
 
-            # Start timer to update notification with audio level (every 150ms for smooth updates)
-            self._recording_timer_id = GLib.timeout_add(150, self._update_recording_notification)
+            # Start timer to update notification with audio level (every 200ms for balance of smoothness and performance)
+            self._recording_timer_id = GLib.timeout_add(200, self._update_recording_notification)
             return False
 
         GLib.idle_add(_create)
