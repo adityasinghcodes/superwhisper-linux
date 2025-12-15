@@ -1,6 +1,6 @@
 # SuperWhisper Linux
 
-A local speech-to-text application for Linux. Press a hotkey, speak, and the transcribed text is pasted into your active window.
+A local speech-to-text application for Linux. Press a hotkey, speak, and get your transcription.
 
 > **Note**: This is a personal project built for my own use on Arch Linux with Hyprland. It may not work on other setups without modifications.
 
@@ -10,8 +10,8 @@ A local speech-to-text application for Linux. Press a hotkey, speak, and the tra
 - **GPU accelerated** - CUDA support for fast transcription
 - **Global hotkey** - Toggle recording with Ctrl+Tab (configurable)
 - **System tray** - Shows recording status (gray = idle, red = recording)
-- **Auto-paste** - Transcribed text is typed into the active window
 - **Microphone selection** - Choose your mic from the tray menu (persisted across restarts)
+- **Desktop integration** - Shows in app launcher, autostart on login
 
 ## Requirements
 
@@ -21,45 +21,94 @@ A local speech-to-text application for Linux. Press a hotkey, speak, and the tra
 
 ## Installation
 
-```bash
-# Required
-sudo pacman -S uv wl-clipboard wtype libappindicator-gtk3
+### 1. Install System Dependencies
 
-# Clone and install
+```bash
+sudo pacman -S uv wl-clipboard wtype libappindicator-gtk3
+```
+
+### 2. Clone the Repository
+
+```bash
 git clone https://github.com/adityasinghcodes/superwhisper-linux.git
 cd superwhisper-linux
 uv sync
-
-# Run
-uv run superwhisper
 ```
+
+### 3. Install the App
+
+```bash
+uv run superwhisper install
+```
+
+This will:
+- Install `superwhisper` command globally (via `uv tool install`)
+- Add a desktop entry (shows up in app launchers)
+- Set up autostart on login
+- Install the app icon
+
+### 4. Add to PATH (if needed)
+
+If you see a warning about `~/.local/bin` not being in PATH:
+
+```bash
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+### 5. Set Up Hyprland Keybind
+
+Run `superwhisper keybind` for instructions, or add manually to `~/.config/hypr/hyprland.conf`:
+
+```
+bind = CTRL, TAB, exec, superwhisper toggle
+```
+
+Then reload: `hyprctl reload`
+
+### 6. Start the App
+
+```bash
+superwhisper
+```
+
+Or search "SuperWhisper" in your app launcher. After the first login, it will start automatically.
 
 GPU acceleration works automatically if you have an NVIDIA GPU with CUDA drivers installed.
 
-You should see:
-- Model loading (downloads ~75MB on first run)
-- "Ready!" message
-- System tray icon appears
+## Alternative: Systemd Service
 
-## Hyprland Keybind
-
-Add to `~/.config/hypr/hyprland.conf`:
-
-```
-bind = CTRL, TAB, exec, /home/YOUR_USERNAME/projects/superwhisper-linux/.venv/bin/superwhisper toggle
-```
-
-Replace `YOUR_USERNAME` with your actual username.
-
-Reload Hyprland:
+If you prefer systemd to manage the app instead of autostart:
 
 ```bash
-hyprctl reload
+uv run superwhisper install --systemd
+```
+
+Control it with:
+```bash
+systemctl --user start superwhisper    # Start now
+systemctl --user stop superwhisper     # Stop
+systemctl --user restart superwhisper  # Restart
+systemctl --user status superwhisper   # Check status
+journalctl --user -u superwhisper -f   # View logs live
+```
+
+## CLI Commands
+
+```bash
+superwhisper            # Start the app
+superwhisper toggle     # Toggle recording (used by keybind)
+superwhisper keybind    # Print Hyprland setup instructions
+superwhisper install    # Install desktop entry, autostart, global command
+superwhisper install --systemd  # Use systemd instead of autostart
+superwhisper uninstall  # Remove all installed files
+superwhisper status     # Show installation status
+superwhisper --help     # Show help
 ```
 
 ## Usage
 
-1. Run `uv run superwhisper` (tray icon appears)
+1. Launch SuperWhisper from your app launcher (or it starts automatically on login)
 2. Press **Ctrl+Tab** to start recording (icon turns red)
 3. Speak
 4. Press **Ctrl+Tab** again to stop
@@ -89,43 +138,143 @@ Edit `~/.config/superwhisper-linux/config.json`:
 ```
 
 **Models** (speed vs accuracy tradeoff):
-- `tiny` - Fastest, ~75MB, good for quick notes
-- `base` - ~145MB
-- `small` - ~465MB
-- `medium` - ~1.5GB
-- `large-v3` - Best accuracy, ~3GB, slower
+| Model | Size | Use Case |
+|-------|------|----------|
+| `tiny` | ~75MB | Fastest, good for quick notes |
+| `base` | ~145MB | Balanced |
+| `small` | ~465MB | Better accuracy |
+| `medium` | ~1.5GB | High accuracy |
+| `large-v3` | ~3GB | Best accuracy, slower |
 
 **Device**:
-- `auto` - Use GPU if available, else CPU
+- `auto` - Use GPU if available, else CPU (recommended)
 - `cuda` - Force GPU
 - `cpu` - Force CPU
 
 ## Troubleshooting
 
+### Check Installation Status
+
+```bash
+superwhisper status
+```
+
+This shows what's installed and what's missing.
+
+### View Logs
+
+```bash
+# View log file
+cat ~/.config/superwhisper-linux/logs/superwhisper.log
+
+# Watch logs live
+tail -f ~/.config/superwhisper-linux/logs/superwhisper.log
+
+# If using systemd
+journalctl --user -u superwhisper -f
+```
+
 ### "No speech detected"
 
-- Check microphone selection in tray menu
-- Ensure microphone volume is up in system settings
-- Check logs: `~/.config/superwhisper-linux/logs/superwhisper.log`
+1. Check microphone selection in tray menu
+2. Ensure microphone volume is up in system settings
+3. Test your mic: `arecord -d 3 test.wav && aplay test.wav`
+4. Check logs for errors
 
-### Keybind not working
+### Keybind Not Working
 
-1. Ensure you're using the **full path** to superwhisper
-2. Test manually: `/path/to/.venv/bin/superwhisper toggle`
-3. Check if superwhisper is running (tray icon visible)
+1. Verify superwhisper is running (tray icon visible)
+2. Test manually: `superwhisper toggle`
+3. Check Hyprland config syntax
+4. Reload Hyprland: `hyprctl reload`
 
-### Slow transcription
+### Slow Transcription
 
-- Check if GPU is being used (logs show "Model loaded on CUDA")
-- Try smaller model: set `"model": "tiny"` in config.json
+1. Check if GPU is being used:
+   ```bash
+   grep -i "cuda\|device" ~/.config/superwhisper-linux/logs/superwhisper.log
+   ```
+2. If using CPU, try a smaller model in config.json: `"model": "tiny"`
+3. Ensure NVIDIA drivers and CUDA are installed: `nvidia-smi`
+
+### App Won't Start
+
+1. Check for errors:
+   ```bash
+   superwhisper 2>&1 | head -50
+   ```
+2. Check if another instance is running:
+   ```bash
+   pgrep -f superwhisper
+   ```
+3. Remove stale PID file:
+   ```bash
+   rm -f /run/user/$(id -u)/superwhisper.pid
+   ```
+
+### Reinstall
+
+If things are broken, do a clean reinstall:
+
+```bash
+superwhisper uninstall
+uv tool uninstall superwhisper
+uv run superwhisper install
+```
+
+## Uninstall
+
+### Remove App Integration
+
+```bash
+superwhisper uninstall
+```
+
+This removes:
+- Desktop entry (`~/.local/share/applications/superwhisper.desktop`)
+- Autostart entry (`~/.config/autostart/superwhisper.desktop`)
+- Systemd service (if installed)
+- App icon
+
+### Remove Global Command
+
+```bash
+uv tool uninstall superwhisper
+```
+
+### Remove Configuration and Logs
+
+```bash
+rm -rf ~/.config/superwhisper-linux
+```
+
+### Complete Removal
+
+```bash
+# Stop if running
+pkill -f superwhisper
+
+# Remove everything
+superwhisper uninstall
+uv tool uninstall superwhisper
+rm -rf ~/.config/superwhisper-linux
+
+# Remove the source code
+cd ..
+rm -rf superwhisper-linux
+```
 
 ## Files
 
 | Path | Purpose |
 |------|---------|
 | `~/.config/superwhisper-linux/config.json` | Settings |
-| `~/.config/superwhisper-linux/logs/` | Log files |
-| `/run/user/1000/superwhisper.pid` | PID file (while running) |
+| `~/.config/superwhisper-linux/logs/` | Log files (rotates at 5MB) |
+| `~/.local/share/applications/superwhisper.desktop` | Desktop entry |
+| `~/.config/autostart/superwhisper.desktop` | Autostart entry |
+| `~/.config/systemd/user/superwhisper.service` | Systemd service (if installed) |
+| `~/.local/bin/superwhisper` | Global command |
+| `/run/user/$UID/superwhisper.pid` | PID file (while running) |
 
 ## License
 

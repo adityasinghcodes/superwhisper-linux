@@ -56,23 +56,56 @@ def toggle():
     sys.exit(0 if success else 1)
 
 
+def install(use_systemd: bool = False):
+    """Install desktop entry, autostart, and system integration."""
+    from .install import install_all
+    install_all(use_systemd=use_systemd)
+
+
+def uninstall():
+    """Remove all installed files."""
+    from .install import uninstall as do_uninstall
+    do_uninstall()
+
+
+def status():
+    """Show installation status."""
+    from .install import print_status
+    print_status()
+
+
 def main():
     """Entry point."""
     # Handle subcommands before any other imports
     if len(sys.argv) > 1:
-        if sys.argv[1] == "toggle":
+        cmd = sys.argv[1]
+        if cmd == "toggle":
             toggle()
             return
-        elif sys.argv[1] == "keybind":
+        elif cmd == "keybind":
             keybind()
             return
-        elif sys.argv[1] in ("-h", "--help"):
+        elif cmd == "install":
+            use_systemd = "--systemd" in sys.argv
+            install(use_systemd=use_systemd)
+            return
+        elif cmd == "uninstall":
+            uninstall()
+            return
+        elif cmd == "status":
+            status()
+            return
+        elif cmd in ("-h", "--help"):
             print("Usage: superwhisper [command]")
             print("")
             print("Commands:")
-            print("  (none)     Start the application")
-            print("  toggle     Toggle recording (send signal to running instance)")
-            print("  keybind    Print Hyprland keybind setup instructions")
+            print("  (none)      Start the application")
+            print("  toggle      Toggle recording (send signal to running instance)")
+            print("  keybind     Print Hyprland keybind setup instructions")
+            print("  install     Install desktop entry, autostart, and global command")
+            print("              --systemd  Use systemd service instead of autostart")
+            print("  uninstall   Remove all installed files")
+            print("  status      Show installation status")
             return
 
     # Initialize logging first
