@@ -2,7 +2,6 @@
 
 import os
 import queue
-import subprocess
 import sys
 import threading
 
@@ -122,6 +121,7 @@ def main():
 
     # Now safe to import everything
     from .audio import AudioRecorder, list_audio_devices
+    from .clipboard import auto_paste, copy_to_clipboard
     from .config import Config
     from .hotkey import HotkeyListener
     from .notifications import NotificationManager
@@ -241,9 +241,13 @@ def main():
                         self.tray.set_queue_size(0)
 
                     if text:
-                        logger.info("Clipboard: %s", text[:50] + "..." if len(text) > 50 else text)
-                        # Don't wait for wl-copy - it stays running to serve clipboard
-                        subprocess.Popen(["wl-copy", text], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        logger.info("Transcribed: %s", text[:50] + "..." if len(text) > 50 else text)
+                        if self.config.auto_paste_enabled:
+                            # Auto-paste into active window (also copies to clipboard)
+                            auto_paste(text)
+                        else:
+                            # Just copy to clipboard
+                            copy_to_clipboard(text)
                         self.notifications.notify_transcription_complete(text, duration)
                     else:
                         logger.info("No speech detected")
@@ -277,6 +281,7 @@ def main():
             logger.info("Logs: %s", get_log_dir())
             logger.info("Model: %s | Device: %s | Language: %s",
                        self.config.model, self.config.device, self.config.language)
+            logger.info("Auto-paste: %s", "enabled" if self.config.auto_paste_enabled else "disabled")
 
             # Pre-load the model
             self.transcriber.load_model()
