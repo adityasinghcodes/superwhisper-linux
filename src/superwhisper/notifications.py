@@ -118,22 +118,23 @@ class NotificationManager:
             during_processing: If True, indicates a new recording started while
                               previous audio was still being processed.
         """
-        if during_processing:
-            # Stop the old processing notification since we're starting fresh
-            self._stop_processing_notification()
-            self._notify(
-                "New Recording",
-                "Previous transcription cancelled.\nSpeak now...",
-                "audio-input-microphone",
-            )
-        else:
-            self._notify(
-                "Recording",
-                "Speak now...",
-                "audio-input-microphone",
-            )
+        self._notify(
+            "Recording",
+            "Speak now...",
+            "audio-input-microphone",
+        )
         self._play_sound("start")
-        logger.debug("Notified: recording started (during_processing=%s)", during_processing)
+        logger.debug("Notified: recording started")
+
+    def notify_busy(self):
+        """Notify that the system is busy processing and user should wait."""
+        self._notify(
+            "Please Wait",
+            "Still processing previous recording...",
+            "audio-x-generic",
+            urgency="low",
+        )
+        logger.debug("Notified: busy, please wait")
 
     def notify_recording_stopped(self):
         """Notify that recording has stopped and transcription is starting."""

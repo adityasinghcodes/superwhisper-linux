@@ -174,17 +174,17 @@ def main():
 
         def _start_recording(self):
             """Start recording audio."""
-            # Check if transcription is in progress (user starting new recording during processing)
-            during_processing = self._is_transcribing
-            if during_processing:
-                logger.info("Recording started (previous transcription will be cancelled)")
-            else:
-                logger.info("Recording started")
+            # Block recording if transcription is in progress
+            if self._is_transcribing:
+                logger.info("Recording blocked - transcription in progress")
+                self.notifications.notify_busy()
+                return
 
+            logger.info("Recording started")
             self.recorder.start()
             if self.tray:
                 self.tray.set_recording(True)
-            self.notifications.notify_recording_started(during_processing=during_processing)
+            self.notifications.notify_recording_started()
 
         def _stop_recording(self):
             """Stop recording and queue for transcription."""
@@ -210,8 +210,6 @@ def main():
             import time
             logger.info("[%.3f] Queuing audio", time.time() % 1000)
             self._audio_queue.put(audio)
-            if self.tray:
-                self.tray.set_queue_size(self._audio_queue.qsize())
 
         def _worker_loop(self):
             """Worker thread that processes audio queue sequentially."""
@@ -222,10 +220,6 @@ def main():
                     audio = self._audio_queue.get()
                     start = time.time()
                     logger.info("[%.3f] Got audio (%.1fs)", time.time() % 1000, len(audio) / 16000)
-
-                    # Update queue size display
-                    if self.tray:
-                        self.tray.set_queue_size(self._audio_queue.qsize())
 
                     # Drain queue to get only the latest audio
                     while not self._audio_queue.empty():
@@ -248,7 +242,6 @@ def main():
                     self._is_transcribing = False
                     if self.tray:
                         self.tray.set_transcribing(False)
-                        self.tray.set_queue_size(0)
 
                     if text:
                         logger.info("Clipboard: %s", text[:50] + "..." if len(text) > 50 else text)
@@ -312,7 +305,6 @@ def main():
                 on_device_change=self._on_device_change,
                 saved_device_name=self.config.microphone,
                 model_info=model_info if self.config.show_model_info else "",
-                show_timer=self.config.show_recording_timer,
             )
 
             logger.info("=" * 50)
