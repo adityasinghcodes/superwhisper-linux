@@ -10,7 +10,7 @@ gi.require_version("AppIndicator3", "0.1")
 from gi.repository import Gtk, AppIndicator3, GLib
 from typing import Callable
 
-from .audio import list_audio_devices, list_audio_devices_with_retry, get_default_input_device
+from .audio import list_audio_devices, wait_for_microphone, get_default_input_device
 from .logging_config import get_logger
 
 logger = get_logger("tray")
@@ -76,8 +76,8 @@ class TrayIcon:
         self._mic_submenu = Gtk.Menu()
         mic_item.set_submenu(self._mic_submenu)
 
-        # Build device list (use retry on first build for autostart scenario)
-        self._populate_mic_submenu(use_retry=self._first_menu_build)
+        # Build device list (wait for target mic on first build for autostart scenario)
+        self._populate_mic_submenu(wait_for_target=self._first_menu_build)
         self._first_menu_build = False
 
         menu.append(mic_item)
@@ -91,11 +91,11 @@ class TrayIcon:
         menu.show_all()
         return menu
 
-    def _populate_mic_submenu(self, use_retry: bool = False):
+    def _populate_mic_submenu(self, wait_for_target: bool = False):
         """Populate the microphone submenu with available devices.
 
         Args:
-            use_retry: If True, use retry logic for audio system initialization
+            wait_for_target: If True, wait for audio service and target microphone
         """
         if self._mic_submenu is None:
             return
@@ -105,9 +105,10 @@ class TrayIcon:
             self._mic_submenu.remove(child)
         self._device_menu_items.clear()
 
-        # Get devices (with retry on first build / autostart)
-        if use_retry:
-            devices = list_audio_devices_with_retry()
+        # Get devices (wait for target on first build / autostart)
+        if wait_for_target:
+            target_name = self._current_device_name or self._saved_device_name
+            devices = wait_for_microphone(target_name=target_name)
         else:
             devices = list_audio_devices()
 
@@ -157,7 +158,7 @@ class TrayIcon:
     def _on_refresh_devices(self, widget):
         """Handle refresh devices menu click."""
         logger.info("Refreshing audio devices...")
-        self._populate_mic_submenu(use_retry=False)
+        self._populate_mic_submenu(wait_for_target=False)
         logger.info("Audio devices refreshed")
 
     def _on_device_toggled(self, widget: Gtk.RadioMenuItem, device_index: int, device_name: str):

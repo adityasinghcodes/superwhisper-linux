@@ -1,5 +1,6 @@
 """Audio recording module using sounddevice."""
 
+import subprocess
 import time
 import numpy as np
 import sounddevice as sd
@@ -187,48 +188,115 @@ def get_default_input_device() -> int | None:
         return None
 
 
-def list_audio_devices_with_retry(
-    max_attempts: int = 5,
-    initial_delay: float = 1.0,
-    max_delay: float = 5.0,
-) -> list[dict]:
-    """List audio devices with retry logic for system startup.
+def wait_for_audio_service(timeout: float = 10.0) -> bool:
+    """Wait for the audio service (PipeWire or PulseAudio) to be ready.
 
-    On login, audio subsystem (PulseAudio/PipeWire) may not be ready yet.
-    This function retries with exponential backoff until devices are found
-    or max attempts are exhausted.
+    On login, the audio daemon may not be fully initialized yet.
+    This function waits until the service reports as active.
 
     Args:
-        max_attempts: Maximum number of attempts to find devices
-        initial_delay: Initial delay between attempts in seconds
-        max_delay: Maximum delay between attempts in seconds
+        timeout: Maximum time to wait in seconds
+
+    Returns:
+        True if audio service is ready, False if timeout reached
+    """
+    # Services to check (in order of preference)
+    services = ["pipewire.service", "pipewire-pulse.service", "pulseaudio.service"]
+
+    start_time = time.time()
+    check_interval = 0.5
+
+    while (time.time() - start_time) < timeout:
+        for service in services:
+            try:
+                result = subprocess.run(
+                    ["systemctl", "--user", "is-active", service],
+                    capture_output=True,
+                    text=True,
+                    timeout=2,
+                )
+                if result.returncode == 0 and result.stdout.strip() == "active":
+                    logger.debug("Audio service ready: %s", service)
+                    return True
+            except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+                continue
+
+        time.sleep(check_interval)
+
+    logger.warning("Audio service not ready after %.1fs", timeout)
+    return False
+
+
+def wait_for_microphone(
+    target_name: str | None = None,
+    timeout: float = 15.0,
+    stabilize_time: float = 1.0,
+) -> list[dict]:
+    """Wait for microphones to be available, optionally waiting for a specific one.
+
+    On login, hardware microphones may take longer to enumerate than virtual
+    devices. This function waits until either:
+    - The target microphone appears (if specified)
+    - The device list stabilizes (no new devices for stabilize_time)
+
+    Args:
+        target_name: Optional microphone name to wait for specifically
+        timeout: Maximum time to wait in seconds
+        stabilize_time: Time to wait for device list to stabilize
 
     Returns:
         List of audio device dictionaries
     """
-    delay = initial_delay
+    # First, wait for audio service to be ready
+    wait_for_audio_service(timeout=min(timeout, 10.0))
 
-    for attempt in range(1, max_attempts + 1):
+    start_time = time.time()
+    last_device_count = -1
+    stable_since: float | None = None
+    check_interval = 0.5
+
+    while (time.time() - start_time) < timeout:
         devices = list_audio_devices()
+        current_count = len(devices)
 
-        if devices:
-            if attempt > 1:
-                logger.info("Found %d microphone(s) on attempt %d", len(devices), attempt)
-            return devices
+        # If we're looking for a specific microphone, check if it's present
+        if target_name:
+            for dev in devices:
+                if dev["name"] == target_name:
+                    elapsed = time.time() - start_time
+                    if elapsed > 0.1:  # Only log if we actually waited
+                        logger.info(
+                            "Found target microphone '%s' after %.1fs",
+                            target_name, elapsed
+                        )
+                    return devices
 
-        if attempt < max_attempts:
-            logger.info(
-                "No microphones found (attempt %d/%d), audio system may still be initializing. "
-                "Retrying in %.1fs...",
-                attempt, max_attempts, delay
-            )
-            time.sleep(delay)
-            # Exponential backoff with cap
-            delay = min(delay * 1.5, max_delay)
+        # Track when device count stabilizes
+        if current_count != last_device_count:
+            last_device_count = current_count
+            stable_since = time.time()
+            logger.debug("Device count changed to %d", current_count)
+        elif stable_since and (time.time() - stable_since) >= stabilize_time:
+            # Device list has been stable long enough
+            if current_count > 0:
+                elapsed = time.time() - start_time
+                if elapsed > stabilize_time + 0.1:  # Only log if we actually waited
+                    logger.info(
+                        "Device list stabilized with %d microphone(s) after %.1fs",
+                        current_count, elapsed
+                    )
+                return devices
 
-    logger.warning(
-        "No microphones found after %d attempts. "
-        "Audio system may not be ready or no microphones are connected.",
-        max_attempts
-    )
-    return []
+        time.sleep(check_interval)
+
+    # Timeout reached, return whatever we have
+    devices = list_audio_devices()
+    if target_name and devices:
+        logger.warning(
+            "Target microphone '%s' not found after %.1fs, found %d other device(s)",
+            target_name, timeout, len(devices)
+        )
+    elif not devices:
+        logger.warning("No microphones found after %.1fs", timeout)
+
+    return devices

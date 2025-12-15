@@ -121,7 +121,7 @@ def main():
         sys.exit(1)
 
     # Now safe to import everything
-    from .audio import AudioRecorder, list_audio_devices, list_audio_devices_with_retry
+    from .audio import AudioRecorder, list_audio_devices, wait_for_microphone
     from .config import Config
     from .hotkey import HotkeyListener
     from .notifications import NotificationManager
@@ -156,10 +156,13 @@ def main():
         def _restore_microphone(self):
             """Restore saved microphone from config.
 
-            Uses retry logic on startup since audio system (PulseAudio/PipeWire)
-            may not be fully initialized yet, especially on auto-start at login.
+            Waits for the audio service (PipeWire/PulseAudio) to be ready and
+            for the saved microphone to appear. This handles auto-start at login
+            when audio system initialization may be delayed.
             """
-            devices = list_audio_devices_with_retry()
+            # Wait for audio service and specifically for the saved microphone
+            devices = wait_for_microphone(target_name=self.config.microphone)
+
             for dev in devices:
                 if dev["name"] == self.config.microphone:
                     self.recorder.set_device(dev["index"])
