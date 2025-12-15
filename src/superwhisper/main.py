@@ -142,6 +142,7 @@ def main():
             self.tray: TrayIcon | None = None
             self.hotkey_listener: HotkeyListener | None = None
             self.notifications = NotificationManager(self.config)
+            self._is_transcribing = False  # Track transcription state
 
             # Worker thread for transcription (single thread, no concurrency issues)
             self._audio_queue: queue.Queue = queue.Queue()
@@ -173,15 +174,22 @@ def main():
 
         def _start_recording(self):
             """Start recording audio."""
-            logger.info("Recording started")
+            # Check if transcription is in progress (user starting new recording during processing)
+            during_processing = self._is_transcribing
+            if during_processing:
+                logger.info("Recording started (previous transcription will be cancelled)")
+            else:
+                logger.info("Recording started")
+
             self.recorder.start()
             if self.tray:
                 self.tray.set_recording(True)
-            self.notifications.notify_recording_started()
+            self.notifications.notify_recording_started(during_processing=during_processing)
 
         def _stop_recording(self):
             """Stop recording and queue for transcription."""
             logger.info("Recording stopped")
+            self._is_transcribing = True
             if self.tray:
                 self.tray.set_recording(False)
                 self.tray.set_transcribing(True)
@@ -190,6 +198,7 @@ def main():
 
             if len(audio) == 0:
                 logger.warning("No audio recorded")
+                self._is_transcribing = False
                 self.notifications.notify_error("No audio recorded")
                 if self.tray:
                     self.tray.set_transcribing(False)
@@ -235,7 +244,8 @@ def main():
                         logger.info("Newer recording available, skipping clipboard")
                         continue
 
-                    # Update tray state
+                    # Update state - transcription complete
+                    self._is_transcribing = False
                     if self.tray:
                         self.tray.set_transcribing(False)
                         self.tray.set_queue_size(0)
@@ -252,6 +262,7 @@ def main():
                     logger.error("Worker error: %s", e)
                     import traceback
                     logger.error(traceback.format_exc())
+                    self._is_transcribing = False
                     self.notifications.notify_error(str(e))
                     if self.tray:
                         self.tray.set_transcribing(False)

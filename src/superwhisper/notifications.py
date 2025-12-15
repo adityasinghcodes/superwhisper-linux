@@ -1,6 +1,7 @@
 """Desktop notifications and audio feedback."""
 
 import subprocess
+import time
 from pathlib import Path
 
 import gi
@@ -22,6 +23,9 @@ class NotificationManager:
         self._initialized = False
         self._gst_available = False
         self._paplay_available = False
+        self._processing_notification: "Notify.Notification | None" = None
+        self._processing_timer_id: int | None = None
+        self._processing_start_time: float | None = None
 
     def initialize(self):
         """Initialize libnotify. Call from main thread."""
@@ -107,28 +111,110 @@ class NotificationManager:
 
         GLib.idle_add(_play)
 
-    def notify_recording_started(self):
-        """Notify that recording has started."""
-        self._notify(
-            "Recording",
-            "Speak now...",
-            "audio-input-microphone",
-        )
+    def notify_recording_started(self, during_processing: bool = False):
+        """Notify that recording has started.
+
+        Args:
+            during_processing: If True, indicates a new recording started while
+                              previous audio was still being processed.
+        """
+        if during_processing:
+            # Stop the old processing notification since we're starting fresh
+            self._stop_processing_notification()
+            self._notify(
+                "New Recording",
+                "Previous transcription cancelled.\nSpeak now...",
+                "audio-input-microphone",
+            )
+        else:
+            self._notify(
+                "Recording",
+                "Speak now...",
+                "audio-input-microphone",
+            )
         self._play_sound("start")
-        logger.debug("Notified: recording started")
+        logger.debug("Notified: recording started (during_processing=%s)", during_processing)
 
     def notify_recording_stopped(self):
         """Notify that recording has stopped and transcription is starting."""
-        self._notify(
-            "Processing",
-            "Transcribing audio...",
-            "audio-x-generic",
-        )
         self._play_sound("stop")
+        self._start_processing_notification()
         logger.debug("Notified: recording stopped")
+
+    def _start_processing_notification(self):
+        """Start a persistent notification that updates during processing."""
+        if not self.config.notifications_enabled:
+            return
+
+        self._processing_start_time = time.time()
+
+        def _create():
+            if not self._initialized:
+                self.initialize()
+
+            # Create notification that we'll update
+            self._processing_notification = Notify.Notification.new(
+                "Processing",
+                "Transcribing audio...",
+                "audio-x-generic"
+            )
+            self._processing_notification.set_urgency(Notify.Urgency.LOW)
+            try:
+                self._processing_notification.show()
+            except Exception as e:
+                logger.warning("Failed to show processing notification: %s", e)
+
+            # Start timer to update notification every 2 seconds
+            self._processing_timer_id = GLib.timeout_add(2000, self._update_processing_notification)
+            return False
+
+        GLib.idle_add(_create)
+
+    def _update_processing_notification(self) -> bool:
+        """Update the processing notification with elapsed time. Returns True to continue timer."""
+        if self._processing_notification is None or self._processing_start_time is None:
+            return False  # Stop timer
+
+        elapsed = time.time() - self._processing_start_time
+        mins = int(elapsed // 60)
+        secs = int(elapsed % 60)
+
+        if mins > 0:
+            time_str = f"{mins}m {secs}s"
+        else:
+            time_str = f"{secs}s"
+
+        try:
+            self._processing_notification.update(
+                "Processing",
+                f"Transcribing audio... ({time_str})",
+                "audio-x-generic"
+            )
+            self._processing_notification.show()
+        except Exception as e:
+            logger.debug("Failed to update processing notification: %s", e)
+            return False  # Stop timer on error
+
+        return True  # Continue timer
+
+    def _stop_processing_notification(self):
+        """Stop and close the processing notification."""
+        if self._processing_timer_id is not None:
+            GLib.source_remove(self._processing_timer_id)
+            self._processing_timer_id = None
+
+        if self._processing_notification is not None:
+            try:
+                self._processing_notification.close()
+            except Exception:
+                pass  # Ignore close errors
+            self._processing_notification = None
+
+        self._processing_start_time = None
 
     def notify_transcription_complete(self, text: str, duration: float):
         """Notify that transcription is complete."""
+        self._stop_processing_notification()
         # Truncate preview if too long
         preview = text[:100] + "..." if len(text) > 100 else text
         self._notify(
@@ -141,6 +227,7 @@ class NotificationManager:
 
     def notify_no_speech(self):
         """Notify that no speech was detected."""
+        self._stop_processing_notification()
         self._notify(
             "No Speech",
             "No speech detected in recording",
@@ -151,6 +238,7 @@ class NotificationManager:
 
     def notify_error(self, error: str):
         """Notify about an error."""
+        self._stop_processing_notification()
         self._notify(
             "Error",
             error,
