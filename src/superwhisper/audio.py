@@ -230,7 +230,7 @@ def wait_for_audio_service(timeout: float = 10.0) -> bool:
 def wait_for_microphone(
     target_name: str | None = None,
     timeout: float = 15.0,
-    stabilize_time: float = 1.0,
+    stabilize_time: float = 2.0,
 ) -> list[dict]:
     """Wait for microphones to be available, optionally waiting for a specific one.
 
@@ -238,6 +238,9 @@ def wait_for_microphone(
     devices. This function waits until either:
     - The target microphone appears (if specified)
     - The device list stabilizes (no new devices for stabilize_time)
+
+    If a target is specified but the device list stabilizes without it,
+    we stop waiting (the device is probably unplugged).
 
     Args:
         target_name: Optional microphone name to wait for specifically
@@ -278,9 +281,15 @@ def wait_for_microphone(
             logger.debug("Device count changed to %d", current_count)
         elif stable_since and (time.time() - stable_since) >= stabilize_time:
             # Device list has been stable long enough
+            elapsed = time.time() - start_time
             if current_count > 0:
-                elapsed = time.time() - start_time
-                if elapsed > stabilize_time + 0.1:  # Only log if we actually waited
+                if target_name:
+                    # Target not found but device list is stable - mic probably unplugged
+                    logger.info(
+                        "Device list stabilized after %.1fs, target '%s' not found (probably unplugged)",
+                        elapsed, target_name
+                    )
+                elif elapsed > stabilize_time + 0.1:
                     logger.info(
                         "Device list stabilized with %d microphone(s) after %.1fs",
                         current_count, elapsed
