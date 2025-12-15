@@ -160,6 +160,15 @@ class NotificationManager:
         self._play_sound("error")
         logger.debug("Notified: error - %s", error)
 
+    def notify_info(self, message: str):
+        """Notify with an informational message."""
+        self._notify(
+            "SuperWhisper",
+            message,
+            "dialog-information",
+        )
+        logger.debug("Notified: info - %s", message)
+
     def shutdown(self):
         """Clean up notification resources."""
         if self._initialized:

@@ -121,11 +121,12 @@ def main():
         sys.exit(1)
 
     # Now safe to import everything
+    from gi.repository import GLib
     from .audio import AudioRecorder, list_audio_devices
     from .config import Config
     from .hotkey import HotkeyListener
     from .notifications import NotificationManager
-    from .transcribe import Transcriber
+    from .transcribe import Transcriber, ensure_model_downloaded, is_model_downloaded
     from .tray import TrayIcon
 
     class SuperWhisper:
@@ -268,6 +269,56 @@ def main():
             self.config.save()
             logger.info("Microphone saved: %s", device_name)
 
+        def _on_model_change(self, model_name: str):
+            """Called when model selection changes."""
+            if model_name == self.config.model:
+                return  # No change
+
+            logger.info("Model change requested: %s -> %s", self.config.model, model_name)
+
+            # Check if model needs to be downloaded
+            if not is_model_downloaded(model_name):
+                logger.info("Model %s not downloaded, downloading...", model_name)
+                self.notifications.notify_info(f"Downloading model: {model_name}")
+
+                # Download in a thread to not block UI
+                def download_and_load():
+                    try:
+                        ensure_model_downloaded(model_name)
+                        GLib.idle_add(lambda: self._apply_model_change(model_name))
+                    except Exception as e:
+                        logger.error("Failed to download model: %s", e)
+                        self.notifications.notify_error(f"Failed to download model: {e}")
+
+                download_thread = threading.Thread(target=download_and_load, daemon=True)
+                download_thread.start()
+            else:
+                self._apply_model_change(model_name)
+
+        def _apply_model_change(self, model_name: str):
+            """Apply the model change after download (if needed)."""
+            # Save to config
+            self.config.model = model_name
+            self.config.save()
+
+            # Create new transcriber with the new model
+            self.transcriber = Transcriber(
+                model_size=model_name,
+                device=self.config.device,
+                compute_type=self.config.compute_type,
+            )
+
+            # Pre-load the new model
+            logger.info("Loading new model: %s", model_name)
+            self.transcriber.load_model()
+
+            # Refresh tray menu to update download status
+            if self.tray:
+                self.tray.refresh_model_menu()
+
+            self.notifications.notify_info(f"Model changed to: {model_name}")
+            logger.info("Model changed to: %s", model_name)
+
         def run(self):
             """Run the application."""
             logger.info("=" * 50)
@@ -284,9 +335,8 @@ def main():
             # Initialize notifications on main thread
             self.notifications.initialize()
 
-            # Build model info string for tray
+            # Build device info string for tray
             device_name = self.transcriber._actual_device.upper()
-            model_info = f"{self.config.model} ({device_name})"
 
             # Set up signal listener
             self.hotkey_listener = HotkeyListener(
@@ -299,8 +349,10 @@ def main():
             self.tray = TrayIcon(
                 on_quit=self._on_quit,
                 on_device_change=self._on_device_change,
+                on_model_change=self._on_model_change,
                 saved_device_name=self.config.microphone,
-                model_info=model_info if self.config.show_model_info else "",
+                current_model=self.config.model,
+                device_info=device_name if self.config.show_model_info else "",
                 show_timer=self.config.show_recording_timer,
             )
 
