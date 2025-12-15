@@ -188,11 +188,14 @@ def get_default_input_device() -> int | None:
         return None
 
 
-def wait_for_audio_service(timeout: float = 10.0) -> bool:
-    """Wait for the audio service (PipeWire or PulseAudio) to be ready.
+def wait_for_audio_service(timeout: float = 30.0) -> bool:
+    """Wait for the audio session manager to be ready.
 
-    On login, the audio daemon may not be fully initialized yet.
-    This function waits until the service reports as active.
+    On PipeWire systems, WirePlumber is the session manager that handles
+    device discovery and enumeration. Once WirePlumber is active, all
+    audio devices should be available.
+
+    On PulseAudio systems, we wait for pulseaudio.service.
 
     Args:
         timeout: Maximum time to wait in seconds
@@ -200,8 +203,10 @@ def wait_for_audio_service(timeout: float = 10.0) -> bool:
     Returns:
         True if audio service is ready, False if timeout reached
     """
-    # Services to check (in order of preference)
-    services = ["pipewire.service", "pipewire-pulse.service", "pulseaudio.service"]
+    # WirePlumber is the session manager for PipeWire - it handles device enumeration
+    # Once wireplumber is active, all devices should be discovered
+    # For PulseAudio systems, fall back to pulseaudio.service
+    services = ["wireplumber.service", "pulseaudio.service"]
 
     start_time = time.time()
     check_interval = 0.5
@@ -216,7 +221,11 @@ def wait_for_audio_service(timeout: float = 10.0) -> bool:
                     timeout=2,
                 )
                 if result.returncode == 0 and result.stdout.strip() == "active":
-                    logger.debug("Audio service ready: %s", service)
+                    elapsed = time.time() - start_time
+                    if elapsed > 0.1:
+                        logger.info("Audio service ready: %s (waited %.1fs)", service, elapsed)
+                    else:
+                        logger.debug("Audio service ready: %s", service)
                     return True
             except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
                 continue
@@ -227,85 +236,34 @@ def wait_for_audio_service(timeout: float = 10.0) -> bool:
     return False
 
 
-def wait_for_microphone(
-    target_name: str | None = None,
-    timeout: float = 15.0,
-    stabilize_time: float = 2.0,
-) -> list[dict]:
-    """Wait for microphones to be available, optionally waiting for a specific one.
+def wait_for_microphone(target_name: str | None = None) -> list[dict]:
+    """Wait for the audio system to be ready, then return available microphones.
 
-    On login, hardware microphones may take longer to enumerate than virtual
-    devices. This function waits until either:
-    - The target microphone appears (if specified)
-    - The device list stabilizes (no new devices for stabilize_time)
-
-    If a target is specified but the device list stabilizes without it,
-    we stop waiting (the device is probably unplugged).
+    This waits for WirePlumber (PipeWire) or PulseAudio to be fully active,
+    which means all audio devices have been enumerated.
 
     Args:
-        target_name: Optional microphone name to wait for specifically
-        timeout: Maximum time to wait in seconds
-        stabilize_time: Time to wait for device list to stabilize
+        target_name: Optional - logged if the target mic isn't found
 
     Returns:
         List of audio device dictionaries
     """
-    # First, wait for audio service to be ready
-    wait_for_audio_service(timeout=min(timeout, 10.0))
+    # Wait for the audio session manager (WirePlumber/PulseAudio) to be ready
+    # Once ready, all devices should be enumerated
+    wait_for_audio_service()
 
-    start_time = time.time()
-    last_device_count = -1
-    stable_since: float | None = None
-    check_interval = 0.5
-
-    while (time.time() - start_time) < timeout:
-        devices = list_audio_devices()
-        current_count = len(devices)
-
-        # If we're looking for a specific microphone, check if it's present
-        if target_name:
-            for dev in devices:
-                if dev["name"] == target_name:
-                    elapsed = time.time() - start_time
-                    if elapsed > 0.1:  # Only log if we actually waited
-                        logger.info(
-                            "Found target microphone '%s' after %.1fs",
-                            target_name, elapsed
-                        )
-                    return devices
-
-        # Track when device count stabilizes
-        if current_count != last_device_count:
-            last_device_count = current_count
-            stable_since = time.time()
-            logger.debug("Device count changed to %d", current_count)
-        elif stable_since and (time.time() - stable_since) >= stabilize_time:
-            # Device list has been stable long enough
-            elapsed = time.time() - start_time
-            if current_count > 0:
-                if target_name:
-                    # Target not found but device list is stable - mic probably unplugged
-                    logger.info(
-                        "Device list stabilized after %.1fs, target '%s' not found (probably unplugged)",
-                        elapsed, target_name
-                    )
-                elif elapsed > stabilize_time + 0.1:
-                    logger.info(
-                        "Device list stabilized with %d microphone(s) after %.1fs",
-                        current_count, elapsed
-                    )
-                return devices
-
-        time.sleep(check_interval)
-
-    # Timeout reached, return whatever we have
+    # Now query devices - they should all be available
     devices = list_audio_devices()
-    if target_name and devices:
-        logger.warning(
-            "Target microphone '%s' not found after %.1fs, found %d other device(s)",
-            target_name, timeout, len(devices)
-        )
-    elif not devices:
-        logger.warning("No microphones found after %.1fs", timeout)
+
+    if target_name:
+        found = any(dev["name"] == target_name for dev in devices)
+        if not found and devices:
+            logger.warning(
+                "Target microphone '%s' not found, %d other device(s) available",
+                target_name, len(devices)
+            )
+
+    if not devices:
+        logger.warning("No microphones found")
 
     return devices
