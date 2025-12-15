@@ -1,5 +1,6 @@
 """Audio recording module using sounddevice."""
 
+import time
 import numpy as np
 import sounddevice as sd
 from threading import Lock
@@ -184,3 +185,50 @@ def get_default_input_device() -> int | None:
         return sd.default.device[0]
     except Exception:
         return None
+
+
+def list_audio_devices_with_retry(
+    max_attempts: int = 5,
+    initial_delay: float = 1.0,
+    max_delay: float = 5.0,
+) -> list[dict]:
+    """List audio devices with retry logic for system startup.
+
+    On login, audio subsystem (PulseAudio/PipeWire) may not be ready yet.
+    This function retries with exponential backoff until devices are found
+    or max attempts are exhausted.
+
+    Args:
+        max_attempts: Maximum number of attempts to find devices
+        initial_delay: Initial delay between attempts in seconds
+        max_delay: Maximum delay between attempts in seconds
+
+    Returns:
+        List of audio device dictionaries
+    """
+    delay = initial_delay
+
+    for attempt in range(1, max_attempts + 1):
+        devices = list_audio_devices()
+
+        if devices:
+            if attempt > 1:
+                logger.info("Found %d microphone(s) on attempt %d", len(devices), attempt)
+            return devices
+
+        if attempt < max_attempts:
+            logger.info(
+                "No microphones found (attempt %d/%d), audio system may still be initializing. "
+                "Retrying in %.1fs...",
+                attempt, max_attempts, delay
+            )
+            time.sleep(delay)
+            # Exponential backoff with cap
+            delay = min(delay * 1.5, max_delay)
+
+    logger.warning(
+        "No microphones found after %d attempts. "
+        "Audio system may not be ready or no microphones are connected.",
+        max_attempts
+    )
+    return []
