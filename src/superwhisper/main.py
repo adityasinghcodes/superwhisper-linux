@@ -184,10 +184,7 @@ def main():
             self.recorder.start()
             if self.tray:
                 self.tray.set_recording(True)
-            # Pass audio level callback for waveform display in notification
-            self.notifications.notify_recording_started(
-                level_callback=lambda: self.recorder.current_level
-            )
+            self.notifications.notify_recording_started()
 
         def _stop_recording(self):
             """Stop recording and queue for transcription."""

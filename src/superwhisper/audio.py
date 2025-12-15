@@ -35,7 +35,6 @@ class AudioRecorder:
         self._stream: sd.InputStream | None = None
         self.device = device
         self._device_sample_rate: int = self.TARGET_SAMPLE_RATE
-        self._current_level: float = 0.0  # Current audio level (0.0 to 1.0)
 
     def set_device(self, device: int | str | None):
         """Set the recording device."""
@@ -60,10 +59,6 @@ class AudioRecorder:
         with self._lock:
             if self._recording:
                 self._audio_data.append(indata.copy())
-                # Update current audio level (RMS normalized to 0-1 range)
-                # Use a scale factor to make levels more visible (typical speech is low amplitude)
-                rms = np.sqrt(np.mean(indata ** 2))
-                self._current_level = min(1.0, rms * 5.0)  # Scale up for visibility
 
     def start(self):
         """Start recording audio."""
@@ -123,12 +118,6 @@ class AudioRecorder:
         """Check if currently recording."""
         with self._lock:
             return self._recording
-
-    @property
-    def current_level(self) -> float:
-        """Get current audio level (0.0 to 1.0)."""
-        with self._lock:
-            return self._current_level
 
 
 def list_audio_devices() -> list[dict]:

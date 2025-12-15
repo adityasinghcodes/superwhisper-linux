@@ -3,7 +3,6 @@
 import subprocess
 import time
 from pathlib import Path
-from typing import Callable
 
 import gi
 
@@ -29,8 +28,7 @@ class NotificationManager:
         self._processing_start_time: float | None = None
         self._recording_notification: "Notify.Notification | None" = None
         self._recording_timer_id: int | None = None
-        self._level_callback: "Callable[[], float] | None" = None
-        self._level_history: list[float] = []  # Recent levels for waveform display
+        self._animation_frame: int = 0
 
     def initialize(self):
         """Initialize libnotify. Call from main thread."""
@@ -116,37 +114,21 @@ class NotificationManager:
 
         GLib.idle_add(_play)
 
-    def notify_recording_started(self, level_callback: Callable[[], float] | None = None):
-        """Notify that recording has started with live audio level display.
-
-        Args:
-            level_callback: Optional callback that returns current audio level (0.0-1.0)
-        """
+    def notify_recording_started(self):
+        """Notify that recording has started with animated indicator."""
         self._play_sound("start")
-        self._level_callback = level_callback
-        self._level_history = []
+        self._animation_frame = 0
         self._start_recording_notification()
         logger.debug("Notified: recording started")
 
-    def _level_to_bars(self, level: float) -> str:
-        """Convert audio level (0.0-1.0) to Unicode bar character."""
-        bars = " ▁▂▃▄▅▆▇█"
-        index = int(level * (len(bars) - 1))
-        return bars[min(index, len(bars) - 1)]
-
-    def _get_waveform_display(self) -> str:
-        """Get waveform display string from level history."""
-        if not self._level_history:
-            return "▁▁▁▁▁▁▁▁"
-        # Take last 8 samples for display
-        recent = self._level_history[-8:]
-        # Pad with low bars if not enough history
-        while len(recent) < 8:
-            recent.insert(0, 0.0)
-        return "".join(self._level_to_bars(level) for level in recent)
+    def _get_animation_frame(self) -> str:
+        """Get current animation frame for recording indicator."""
+        # Simple pulsing dot animation
+        frames = ["●    ", "●●   ", "●●●  ", "●●●● ", "●●●●●", " ●●●●", "  ●●●", "   ●●", "    ●"]
+        return frames[self._animation_frame % len(frames)]
 
     def _start_recording_notification(self):
-        """Start a persistent notification that shows audio level during recording."""
+        """Start a persistent notification with animation during recording."""
         if not self.config.notifications_enabled:
             return
 
@@ -157,7 +139,7 @@ class NotificationManager:
             # Create notification that we'll update
             self._recording_notification = Notify.Notification.new(
                 "Recording",
-                "Speak now...  ▁▁▁▁▁▁▁▁",
+                f"Speak now...  {self._get_animation_frame()}",
                 "audio-input-microphone"
             )
             self._recording_notification.set_urgency(Notify.Urgency.LOW)
@@ -166,34 +148,24 @@ class NotificationManager:
             except Exception as e:
                 logger.warning("Failed to show recording notification: %s", e)
 
-            # Start timer to update notification with audio level (every 200ms for balance of smoothness and performance)
+            # Start timer to update animation (every 200ms)
             self._recording_timer_id = GLib.timeout_add(200, self._update_recording_notification)
             return False
 
         GLib.idle_add(_create)
 
     def _update_recording_notification(self) -> bool:
-        """Update the recording notification with current audio level."""
+        """Update the recording notification animation."""
         if self._recording_notification is None:
             return False  # Stop timer
 
-        # Get current level from callback
-        if self._level_callback is not None:
-            try:
-                level = self._level_callback()
-                self._level_history.append(level)
-                # Keep only last 16 samples
-                if len(self._level_history) > 16:
-                    self._level_history = self._level_history[-16:]
-            except Exception:
-                pass
-
-        waveform = self._get_waveform_display()
+        self._animation_frame += 1
+        animation = self._get_animation_frame()
 
         try:
             self._recording_notification.update(
                 "Recording",
-                f"Speak now...  {waveform}",
+                f"Speak now...  {animation}",
                 "audio-input-microphone"
             )
             self._recording_notification.show()
@@ -216,8 +188,7 @@ class NotificationManager:
                 pass  # Ignore close errors
             self._recording_notification = None
 
-        self._level_callback = None
-        self._level_history = []
+        self._animation_frame = 0
 
     def notify_busy(self):
         """Notify that the system is busy processing and user should wait."""
