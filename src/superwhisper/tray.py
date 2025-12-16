@@ -1,7 +1,6 @@
 """System tray icon using AppIndicator."""
 
 import gi
-import time
 from pathlib import Path
 
 gi.require_version("Gtk", "3.0")
@@ -282,16 +281,11 @@ class TrayIcon:
             if self._indicator:
                 if recording:
                     self._indicator.set_icon_full("superwhisper-recording", "Recording")
-                    self._recording_start_time = time.time()
-                    self._start_timer()
                 else:
-                    self._stop_timer()
                     if self._transcribing:
                         self._indicator.set_icon_full("superwhisper-transcribing", "Transcribing")
-                        self._status_item.set_label("Transcribing...")
                     else:
                         self._indicator.set_icon_full("superwhisper-idle", "Idle")
-                        self._status_item.set_label("Idle")
             return False
 
         GLib.idle_add(update)
@@ -304,53 +298,11 @@ class TrayIcon:
             if self._indicator and not self._recording:
                 if transcribing:
                     self._indicator.set_icon_full("superwhisper-transcribing", "Transcribing")
-                    self._status_item.set_label("Transcribing...")
                 else:
                     self._indicator.set_icon_full("superwhisper-idle", "Idle")
-                    self._status_item.set_label("Idle")
             return False
 
         GLib.idle_add(update)
-
-    def set_queue_size(self, size: int):
-        """Update queue status display."""
-        self._queue_size = size
-
-        def update():
-            if size > 0:
-                self._queue_item.set_label(f"Queue: {size} pending")
-                self._queue_item.show()
-            else:
-                self._queue_item.hide()
-            return False
-
-        GLib.idle_add(update)
-
-    def _start_timer(self):
-        """Start the recording timer update."""
-        if not self._show_timer:
-            self._status_item.set_label("Recording...")
-            return
-
-        def update_timer():
-            if self._recording and self._recording_start_time:
-                elapsed = time.time() - self._recording_start_time
-                mins = int(elapsed // 60)
-                secs = int(elapsed % 60)
-                self._status_item.set_label(f"Recording... {mins}:{secs:02d}")
-                return True  # Continue timer
-            return False  # Stop timer
-
-        # Immediate first update
-        self._status_item.set_label("Recording... 0:00")
-        self._timer_source_id = GLib.timeout_add(1000, update_timer)
-
-    def _stop_timer(self):
-        """Stop the recording timer."""
-        if self._timer_source_id:
-            GLib.source_remove(self._timer_source_id)
-            self._timer_source_id = None
-        self._recording_start_time = None
 
     def run(self):
         """Start the tray icon (blocks until quit)."""

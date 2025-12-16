@@ -163,6 +163,7 @@ def main():
             self.tray: TrayIcon | None = None
             self.hotkey_listener: HotkeyListener | None = None
             self.notifications = NotificationManager(self.config)
+            self._is_transcribing = False  # Track transcription state
 
             # Worker thread for transcription (single thread, no concurrency issues)
             self._audio_queue: queue.Queue = queue.Queue()
@@ -204,6 +205,12 @@ def main():
 
         def _start_recording(self):
             """Start recording audio."""
+            # Block recording if transcription is in progress
+            if self._is_transcribing:
+                logger.info("Recording blocked - transcription in progress")
+                self.notifications.notify_busy()
+                return
+
             logger.info("Recording started")
             self.recorder.start()
             if self.tray:
@@ -213,6 +220,7 @@ def main():
         def _stop_recording(self):
             """Stop recording and queue for transcription."""
             logger.info("Recording stopped")
+            self._is_transcribing = True
             if self.tray:
                 self.tray.set_recording(False)
                 self.tray.set_transcribing(True)
@@ -221,6 +229,7 @@ def main():
 
             if len(audio) == 0:
                 logger.warning("No audio recorded")
+                self._is_transcribing = False
                 self.notifications.notify_error("No audio recorded")
                 if self.tray:
                     self.tray.set_transcribing(False)
@@ -232,8 +241,6 @@ def main():
             import time
             logger.info("[%.3f] Queuing audio", time.time() % 1000)
             self._audio_queue.put(audio)
-            if self.tray:
-                self.tray.set_queue_size(self._audio_queue.qsize())
 
         def _worker_loop(self):
             """Worker thread that processes audio queue sequentially."""
@@ -244,10 +251,6 @@ def main():
                     audio = self._audio_queue.get()
                     start = time.time()
                     logger.info("[%.3f] Got audio (%.1fs)", time.time() % 1000, len(audio) / 16000)
-
-                    # Update queue size display
-                    if self.tray:
-                        self.tray.set_queue_size(self._audio_queue.qsize())
 
                     # Drain queue to get only the latest audio
                     while not self._audio_queue.empty():
@@ -266,10 +269,10 @@ def main():
                         logger.info("Newer recording available, skipping clipboard")
                         continue
 
-                    # Update tray state
+                    # Update state - transcription complete
+                    self._is_transcribing = False
                     if self.tray:
                         self.tray.set_transcribing(False)
-                        self.tray.set_queue_size(0)
 
                     if text:
                         logger.info("Transcribed: %s", text[:50] + "..." if len(text) > 50 else text)
@@ -287,6 +290,7 @@ def main():
                     logger.error("Worker error: %s", e)
                     import traceback
                     logger.error(traceback.format_exc())
+                    self._is_transcribing = False
                     self.notifications.notify_error(str(e))
                     if self.tray:
                         self.tray.set_transcribing(False)
