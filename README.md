@@ -142,6 +142,14 @@ superwhisper --help     # Show help
 
 The selection is saved automatically.
 
+### Model Selection
+
+1. Click the tray icon
+2. Go to **Model** submenu
+3. Select a model (downloads automatically if needed)
+
+Larger models are more accurate but slower. The selection is saved automatically.
+
 ## Configuration
 
 Edit `~/.config/superwhisper-linux/config.json`:
@@ -157,7 +165,8 @@ Edit `~/.config/superwhisper-linux/config.json`:
   "notifications_enabled": true,
   "audio_feedback_enabled": false,
   "show_model_info": true,
-  "show_recording_timer": true
+  "show_recording_timer": true,
+  "auto_paste_enabled": true
 }
 ```
 
@@ -180,6 +189,7 @@ Edit `~/.config/superwhisper-linux/config.json`:
 - `audio_feedback_enabled` - Play sounds on record start/stop (default: false)
 - `show_model_info` - Display model name in tray menu (default: true)
 - `show_recording_timer` - Show live recording duration in tray (default: true)
+- `auto_paste_enabled` - Auto-paste transcription into active window (default: true)
 
 ## Troubleshooting
 
