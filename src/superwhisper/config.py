@@ -28,6 +28,9 @@ class Config:
     show_model_info: bool = True
     show_recording_timer: bool = True
 
+    # Auto-paste settings
+    auto_paste_enabled: bool = True  # Paste transcription into active window
+
     @classmethod
     def get_config_dir(cls) -> Path:
         """Get the configuration directory path."""
