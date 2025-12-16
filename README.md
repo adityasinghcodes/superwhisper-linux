@@ -9,13 +9,18 @@ A local speech-to-text application for Linux. Press a hotkey, speak, and get you
 - **Local transcription** - Uses [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (no cloud, no API keys)
 - **GPU accelerated** - CUDA support for fast transcription
 - **Global hotkey** - Toggle recording with Ctrl+Tab (configurable)
-- **System tray** - Shows recording status (gray = idle, red = recording)
+- **System tray** - Shows status with colored icons (gray = idle, red = recording, blue = transcribing)
+- **Desktop notifications** - Get notified when recording starts, stops, and when transcription completes
+- **Audio feedback** - Optional sound effects for recording start/stop (requires PipeWire)
+- **Recording timer** - Live duration display in tray menu while recording
+- **Auto-paste** - Transcribed text is typed into the active window
 - **Microphone selection** - Choose your mic from the tray menu (persisted across restarts)
 - **Desktop integration** - Shows in app launcher, autostart on login
 
 ## Requirements
 
 - Arch Linux (tested on Hyprland/Wayland)
+- Python 3.13+
 - PipeWire audio
 - NVIDIA GPU with CUDA (optional, falls back to CPU)
 
@@ -148,7 +153,11 @@ Edit `~/.config/superwhisper-linux/config.json`:
   "compute_type": "auto",
   "language": "en",
   "hotkey": "CTRL+TAB",
-  "microphone": "Your Microphone Name"
+  "microphone": "Your Microphone Name",
+  "notifications_enabled": true,
+  "audio_feedback_enabled": false,
+  "show_model_info": true,
+  "show_recording_timer": true
 }
 ```
 
@@ -165,6 +174,12 @@ Edit `~/.config/superwhisper-linux/config.json`:
 - `auto` - Use GPU if available, else CPU (recommended)
 - `cuda` - Force GPU
 - `cpu` - Force CPU
+
+**Notifications & Feedback**:
+- `notifications_enabled` - Show desktop notifications (default: true)
+- `audio_feedback_enabled` - Play sounds on record start/stop (default: false)
+- `show_model_info` - Display model name in tray menu (default: true)
+- `show_recording_timer` - Show live recording duration in tray (default: true)
 
 ## Troubleshooting
 
