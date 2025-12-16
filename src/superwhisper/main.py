@@ -108,6 +108,26 @@ def main():
             print("  status      Show installation status")
             return
 
+    # Check if another instance is already running
+    from .hotkey import get_pid_file
+    import os as _os
+    pid_file = get_pid_file()
+    if pid_file.exists():
+        try:
+            pid = int(pid_file.read_text().strip())
+            # Check if process is still running
+            _os.kill(pid, 0)  # Doesn't actually kill, just checks
+            print(f"SuperWhisper is already running (PID {pid})")
+            print("Use 'superwhisper toggle' to control it.")
+            sys.exit(1)
+        except (ValueError, ProcessLookupError):
+            # PID file is stale, remove it
+            pid_file.unlink()
+        except PermissionError:
+            # Process exists but we can't signal it (shouldn't happen for our own process)
+            print(f"SuperWhisper appears to be running (PID {pid}) but owned by another user")
+            sys.exit(1)
+
     # Initialize logging first
     from .logging_config import setup_logging, get_logger, get_log_dir
     setup_logging()
