@@ -110,7 +110,8 @@ class TrayIcon:
             target_name = self._current_device_name or self._saved_device_name
             devices = wait_for_microphone(target_name=target_name)
         else:
-            devices = list_audio_devices()
+            # Refresh audio backend to get fresh device list (not cached from startup)
+            devices = list_audio_devices(refresh=True)
 
         default_device = get_default_input_device()
 

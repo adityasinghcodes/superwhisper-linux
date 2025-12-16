@@ -122,8 +122,29 @@ class AudioRecorder:
             return self._recording
 
 
-def list_audio_devices() -> list[dict]:
-    """List available audio input devices (filtered to real microphones)."""
+def _refresh_audio_backend():
+    """Reinitialize the audio backend to refresh the device cache.
+
+    Sounddevice/PortAudio caches the device list on first use. If devices
+    change (or weren't ready at startup), we need to reinitialize to see them.
+    """
+    try:
+        sd._terminate()
+        sd._initialize()
+        logger.debug("Audio backend reinitialized")
+    except Exception as e:
+        logger.warning("Failed to reinitialize audio backend: %s", e)
+
+
+def list_audio_devices(refresh: bool = False) -> list[dict]:
+    """List available audio input devices (filtered to real microphones).
+
+    Args:
+        refresh: If True, reinitialize audio backend first to get fresh device list
+    """
+    if refresh:
+        _refresh_audio_backend()
+
     devices = sd.query_devices()
     inputs = []
 
@@ -240,7 +261,7 @@ def wait_for_microphone(target_name: str | None = None) -> list[dict]:
     """Wait for the audio system to be ready, then return available microphones.
 
     This waits for WirePlumber (PipeWire) or PulseAudio to be fully active,
-    which means all audio devices have been enumerated.
+    then reinitializes the audio backend to get a fresh device list.
 
     Args:
         target_name: Optional - logged if the target mic isn't found
@@ -249,11 +270,11 @@ def wait_for_microphone(target_name: str | None = None) -> list[dict]:
         List of audio device dictionaries
     """
     # Wait for the audio session manager (WirePlumber/PulseAudio) to be ready
-    # Once ready, all devices should be enumerated
     wait_for_audio_service()
 
-    # Now query devices - they should all be available
-    devices = list_audio_devices()
+    # Refresh the audio backend to clear any stale device cache from early startup
+    # Then query devices - they should all be available now
+    devices = list_audio_devices(refresh=True)
 
     if target_name:
         found = any(dev["name"] == target_name for dev in devices)
