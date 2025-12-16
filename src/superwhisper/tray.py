@@ -11,6 +11,7 @@ from gi.repository import Gtk, AppIndicator3, GLib
 from typing import Callable
 
 from .audio import list_audio_devices, wait_for_microphone, get_default_input_device
+from .transcribe import get_available_models
 from .logging_config import get_logger
 
 logger = get_logger("tray")
@@ -26,14 +27,18 @@ class TrayIcon:
         self,
         on_quit: Callable[[], None] | None = None,
         on_device_change: Callable[[int | None, str | None], None] | None = None,
+        on_model_change: Callable[[str], None] | None = None,
         saved_device_name: str | None = None,
-        model_info: str = "",
+        current_model: str = "tiny",
+        device_info: str = "",
         show_timer: bool = True,
     ):
         self.on_quit = on_quit
         self.on_device_change = on_device_change
+        self.on_model_change = on_model_change
         self._saved_device_name = saved_device_name
-        self._model_info = model_info
+        self._current_model = current_model
+        self._device_info = device_info
         self._show_timer = show_timer
         self._indicator: AppIndicator3.Indicator | None = None
         self._recording = False
@@ -41,6 +46,7 @@ class TrayIcon:
         self._current_device: int | None = None
         self._current_device_name: str | None = saved_device_name
         self._device_menu_items: dict[int, Gtk.RadioMenuItem] = {}
+        self._model_menu_items: dict[str, Gtk.RadioMenuItem] = {}
         self._recording_start_time: float | None = None
         self._timer_source_id: int | None = None
         self._queue_size: int = 0
@@ -56,11 +62,11 @@ class TrayIcon:
         self._status_item.set_sensitive(False)
         menu.append(self._status_item)
 
-        # Model/device info item
-        if self._model_info:
-            self._model_item = Gtk.MenuItem(label=f"Model: {self._model_info}")
-            self._model_item.set_sensitive(False)
-            menu.append(self._model_item)
+        # Device info item (shows CPU/CUDA)
+        if self._device_info:
+            self._device_info_item = Gtk.MenuItem(label=f"Device: {self._device_info}")
+            self._device_info_item.set_sensitive(False)
+            menu.append(self._device_info_item)
 
         # Queue status item (hidden when empty)
         self._queue_item = Gtk.MenuItem(label="")
@@ -70,6 +76,34 @@ class TrayIcon:
         menu.append(self._queue_item)
 
         menu.append(Gtk.SeparatorMenuItem())
+
+        # Model submenu
+        model_item = Gtk.MenuItem(label="Model")
+        model_submenu = Gtk.Menu()
+        model_item.set_submenu(model_submenu)
+
+        models = get_available_models()
+        group = None
+        for model in models:
+            is_selected = model["name"] == self._current_model
+
+            # Build label with checkmark and download status
+            label = f"{'✓ ' if is_selected else '   '}{model['name']} ({model['size']})"
+            if not model["downloaded"]:
+                label += " [not downloaded]"
+
+            item = Gtk.RadioMenuItem(label=label, group=group)
+            if group is None:
+                group = item
+
+            if is_selected:
+                item.set_active(True)
+
+            item.connect("toggled", self._on_model_toggled, model["name"], model["downloaded"])
+            self._model_menu_items[model["name"]] = item
+            model_submenu.append(item)
+
+        menu.append(model_item)
 
         # Microphone submenu
         mic_item = Gtk.MenuItem(label="Microphone")
@@ -191,6 +225,47 @@ class TrayIcon:
                 label = "✓ " + label[3:]
 
             item.set_label(label)
+
+    def _on_model_toggled(self, widget: Gtk.RadioMenuItem, model_name: str, is_downloaded: bool):
+        """Handle model selection change."""
+        if widget.get_active():
+            self._current_model = model_name
+            logger.info("Model selected: %s (downloaded: %s)", model_name, is_downloaded)
+
+            # Update checkmarks in menu labels
+            self._update_model_labels()
+
+            if self.on_model_change:
+                self.on_model_change(model_name)
+
+    def _update_model_labels(self):
+        """Update checkmarks in model menu labels."""
+        # Refresh download status
+        models = get_available_models()
+        model_download_status = {m["name"]: m["downloaded"] for m in models}
+
+        for model_name, item in self._model_menu_items.items():
+            # Find model info
+            model_info = next((m for m in models if m["name"] == model_name), None)
+            if not model_info:
+                continue
+
+            is_selected = model_name == self._current_model
+            is_downloaded = model_download_status.get(model_name, False)
+
+            # Rebuild label
+            label = f"{'✓ ' if is_selected else '   '}{model_name} ({model_info['size']})"
+            if not is_downloaded:
+                label += " [not downloaded]"
+
+            item.set_label(label)
+
+    def refresh_model_menu(self):
+        """Refresh the model menu to update download status."""
+        def update():
+            self._update_model_labels()
+            return False
+        GLib.idle_add(update)
 
     def _on_quit_clicked(self, widget):
         """Handle quit menu click."""

@@ -28,6 +28,25 @@ def check_cuda_available() -> bool:
         return False
 
 
+def is_model_downloaded(model_size: str) -> bool:
+    """Check if a model is already downloaded."""
+    repo_id = f"Systran/faster-whisper-{model_size}"
+    cached = try_to_load_from_cache(repo_id, "model.bin")
+    return cached is not None
+
+
+def get_available_models() -> list[dict]:
+    """Get list of available models with their info and download status."""
+    models = []
+    for name, size in MODEL_INFO.items():
+        models.append({
+            "name": name,
+            "size": size,
+            "downloaded": is_model_downloaded(name),
+        })
+    return models
+
+
 def ensure_model_downloaded(model_size: str) -> None:
     """Download model with progress bar if not cached."""
     repo_id = f"Systran/faster-whisper-{model_size}"
