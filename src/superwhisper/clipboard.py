@@ -83,11 +83,20 @@ def get_active_window_class() -> str | None:
 
 
 def is_terminal(window_class: str | None, terminal_classes: set[str] | None = None) -> bool:
-    """Check if the window class is a terminal emulator."""
+    """Check if the window class is a terminal emulator.
+
+    Uses substring matching - if any known terminal name is contained
+    in the window class, it's considered a terminal. This handles cases
+    like 'com.mitchellh.ghostty' matching 'ghostty'.
+    """
     if not window_class:
         return False
     classes = terminal_classes or DEFAULT_TERMINAL_CLASSES
-    return window_class in classes
+    for term in classes:
+        if term in window_class:
+            logger.debug("Terminal match: '%s' contains '%s'", window_class, term)
+            return True
+    return False
 
 
 def send_paste_shortcut(use_shift: bool = False) -> bool:

@@ -1,6 +1,6 @@
 [project]
 name = "superwhisper"
-version = "0.1.0"
+version = "0.2.0"
 description = "Speech-to-text for Linux using local Whisper models"
 readme = "README.md"
 requires-python = ">=3.13"
