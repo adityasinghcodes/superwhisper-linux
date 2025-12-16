@@ -93,6 +93,21 @@ systemctl --user status superwhisper   # Check status
 journalctl --user -u superwhisper -f   # View logs live
 ```
 
+## Updating
+
+When you pull new changes from the repository, the installed app doesn't update automatically. To apply updates:
+
+```bash
+cd superwhisper-linux
+git pull
+superwhisper install
+```
+
+Then restart the app:
+- If running manually: quit from tray menu and run `superwhisper`
+- If using systemd: `systemctl --user restart superwhisper`
+- Or log out and back in
+
 ## CLI Commands
 
 ```bash
