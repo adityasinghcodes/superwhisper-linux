@@ -141,7 +141,7 @@ def main():
         sys.exit(1)
 
     # Now safe to import everything
-    from .audio import AudioRecorder, list_audio_devices
+    from .audio import AudioRecorder, list_audio_devices, wait_for_microphone
     from .config import Config
     from .hotkey import HotkeyListener
     from .notifications import NotificationManager
@@ -174,15 +174,25 @@ def main():
                 self._restore_microphone()
 
         def _restore_microphone(self):
-            """Restore saved microphone from config."""
-            devices = list_audio_devices()
+            """Restore saved microphone from config.
+
+            Waits for the audio service (PipeWire/PulseAudio) to be ready and
+            for the saved microphone to appear. This handles auto-start at login
+            when audio system initialization may be delayed.
+            """
+            # Wait for audio service and specifically for the saved microphone
+            devices = wait_for_microphone(target_name=self.config.microphone)
+
             for dev in devices:
                 if dev["name"] == self.config.microphone:
                     self.recorder.set_device(dev["index"])
                     logger.info("Restored microphone: %s", dev["name"])
                     return
 
-            logger.warning("Saved microphone '%s' not found, using default", self.config.microphone)
+            if devices:
+                logger.warning("Saved microphone '%s' not found, using default", self.config.microphone)
+            else:
+                logger.warning("No microphones found during startup, will retry when tray menu is opened")
 
         def _on_hotkey(self):
             """Called when the hotkey is pressed."""

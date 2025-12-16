@@ -1,5 +1,7 @@
 """Audio recording module using sounddevice."""
 
+import subprocess
+import time
 import numpy as np
 import sounddevice as sd
 from threading import Lock
@@ -184,3 +186,84 @@ def get_default_input_device() -> int | None:
         return sd.default.device[0]
     except Exception:
         return None
+
+
+def wait_for_audio_service(timeout: float = 30.0) -> bool:
+    """Wait for the audio session manager to be ready.
+
+    On PipeWire systems, WirePlumber is the session manager that handles
+    device discovery and enumeration. Once WirePlumber is active, all
+    audio devices should be available.
+
+    On PulseAudio systems, we wait for pulseaudio.service.
+
+    Args:
+        timeout: Maximum time to wait in seconds
+
+    Returns:
+        True if audio service is ready, False if timeout reached
+    """
+    # WirePlumber is the session manager for PipeWire - it handles device enumeration
+    # Once wireplumber is active, all devices should be discovered
+    # For PulseAudio systems, fall back to pulseaudio.service
+    services = ["wireplumber.service", "pulseaudio.service"]
+
+    start_time = time.time()
+    check_interval = 0.5
+
+    while (time.time() - start_time) < timeout:
+        for service in services:
+            try:
+                result = subprocess.run(
+                    ["systemctl", "--user", "is-active", service],
+                    capture_output=True,
+                    text=True,
+                    timeout=2,
+                )
+                if result.returncode == 0 and result.stdout.strip() == "active":
+                    elapsed = time.time() - start_time
+                    if elapsed > 0.1:
+                        logger.info("Audio service ready: %s (waited %.1fs)", service, elapsed)
+                    else:
+                        logger.debug("Audio service ready: %s", service)
+                    return True
+            except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+                continue
+
+        time.sleep(check_interval)
+
+    logger.warning("Audio service not ready after %.1fs", timeout)
+    return False
+
+
+def wait_for_microphone(target_name: str | None = None) -> list[dict]:
+    """Wait for the audio system to be ready, then return available microphones.
+
+    This waits for WirePlumber (PipeWire) or PulseAudio to be fully active,
+    which means all audio devices have been enumerated.
+
+    Args:
+        target_name: Optional - logged if the target mic isn't found
+
+    Returns:
+        List of audio device dictionaries
+    """
+    # Wait for the audio session manager (WirePlumber/PulseAudio) to be ready
+    # Once ready, all devices should be enumerated
+    wait_for_audio_service()
+
+    # Now query devices - they should all be available
+    devices = list_audio_devices()
+
+    if target_name:
+        found = any(dev["name"] == target_name for dev in devices)
+        if not found and devices:
+            logger.warning(
+                "Target microphone '%s' not found, %d other device(s) available",
+                target_name, len(devices)
+            )
+
+    if not devices:
+        logger.warning("No microphones found")
+
+    return devices

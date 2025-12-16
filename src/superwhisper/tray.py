@@ -10,7 +10,7 @@ gi.require_version("AppIndicator3", "0.1")
 from gi.repository import Gtk, AppIndicator3, GLib
 from typing import Callable
 
-from .audio import list_audio_devices, get_default_input_device
+from .audio import list_audio_devices, wait_for_microphone, get_default_input_device
 from .logging_config import get_logger
 
 logger = get_logger("tray")
@@ -39,10 +39,13 @@ class TrayIcon:
         self._recording = False
         self._transcribing = False
         self._current_device: int | None = None
+        self._current_device_name: str | None = saved_device_name
         self._device_menu_items: dict[int, Gtk.RadioMenuItem] = {}
         self._recording_start_time: float | None = None
         self._timer_source_id: int | None = None
         self._queue_size: int = 0
+        self._mic_submenu: Gtk.Menu | None = None
+        self._first_menu_build = True
 
     def _create_menu(self) -> Gtk.Menu:
         """Create the tray icon menu."""
@@ -70,24 +73,61 @@ class TrayIcon:
 
         # Microphone submenu
         mic_item = Gtk.MenuItem(label="Microphone")
-        mic_submenu = Gtk.Menu()
-        mic_item.set_submenu(mic_submenu)
+        self._mic_submenu = Gtk.Menu()
+        mic_item.set_submenu(self._mic_submenu)
 
-        devices = list_audio_devices()
+        # Build device list (wait for target mic on first build for autostart scenario)
+        self._populate_mic_submenu(wait_for_target=self._first_menu_build)
+        self._first_menu_build = False
+
+        menu.append(mic_item)
+        menu.append(Gtk.SeparatorMenuItem())
+
+        # Quit item
+        quit_item = Gtk.MenuItem(label="Quit")
+        quit_item.connect("activate", self._on_quit_clicked)
+        menu.append(quit_item)
+
+        menu.show_all()
+        return menu
+
+    def _populate_mic_submenu(self, wait_for_target: bool = False):
+        """Populate the microphone submenu with available devices.
+
+        Args:
+            wait_for_target: If True, wait for audio service and target microphone
+        """
+        if self._mic_submenu is None:
+            return
+
+        # Clear existing items
+        for child in self._mic_submenu.get_children():
+            self._mic_submenu.remove(child)
+        self._device_menu_items.clear()
+
+        # Get devices (wait for target on first build / autostart)
+        if wait_for_target:
+            target_name = self._current_device_name or self._saved_device_name
+            devices = wait_for_microphone(target_name=target_name)
+        else:
+            devices = list_audio_devices()
+
         default_device = get_default_input_device()
 
         if not devices:
             no_dev = Gtk.MenuItem(label="No microphones found")
             no_dev.set_sensitive(False)
-            mic_submenu.append(no_dev)
+            self._mic_submenu.append(no_dev)
         else:
             group = None
             for dev in devices:
                 # Determine if this device should be selected
                 should_select = False
-                if self._saved_device_name and dev["name"] == self._saved_device_name:
+                # Use current device name if set, otherwise fall back to saved name
+                target_name = self._current_device_name or self._saved_device_name
+                if target_name and dev["name"] == target_name:
                     should_select = True
-                elif not self._saved_device_name and dev["index"] == default_device:
+                elif not target_name and dev["index"] == default_device:
                     should_select = True
 
                 # Build label with checkmark for selected device
@@ -105,18 +145,21 @@ class TrayIcon:
 
                 item.connect("toggled", self._on_device_toggled, dev["index"], dev["name"])
                 self._device_menu_items[dev["index"]] = item
-                mic_submenu.append(item)
+                self._mic_submenu.append(item)
 
-        menu.append(mic_item)
-        menu.append(Gtk.SeparatorMenuItem())
+        # Add separator and refresh button
+        self._mic_submenu.append(Gtk.SeparatorMenuItem())
+        refresh_item = Gtk.MenuItem(label="↻ Refresh Devices")
+        refresh_item.connect("activate", self._on_refresh_devices)
+        self._mic_submenu.append(refresh_item)
 
-        # Quit item
-        quit_item = Gtk.MenuItem(label="Quit")
-        quit_item.connect("activate", self._on_quit_clicked)
-        menu.append(quit_item)
+        self._mic_submenu.show_all()
 
-        menu.show_all()
-        return menu
+    def _on_refresh_devices(self, widget):
+        """Handle refresh devices menu click."""
+        logger.info("Refreshing audio devices...")
+        self._populate_mic_submenu(wait_for_target=False)
+        logger.info("Audio devices refreshed")
 
     def _on_device_toggled(self, widget: Gtk.RadioMenuItem, device_index: int, device_name: str):
         """Handle microphone selection change."""
