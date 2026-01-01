@@ -32,6 +32,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Improved notification update interval to 200ms for better performance
 - Simplified tray UI during recording/processing states
 
+## [Unreleased]
+
+### Fixed
+
+- Refreshing microphones now forces a PortAudio device list refresh for late-loaded devices.
+- Avoid crashing on missing `gi` deps and report them as installable missing packages.
+- Validate PID files to avoid blocking startup or signaling unrelated processes.
+- Clipboard copy now streams text via stdin to avoid long-argument failures.
+
 ## [0.1.0] - 2025-12-15
 
 ### Added

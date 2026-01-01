@@ -140,7 +140,8 @@ superwhisper --help     # Show help
 2. Go to **Microphone** submenu
 3. Select your microphone
 
-The selection is saved automatically.
+The selection is saved automatically. If devices are missing right after boot,
+use **↻ Refresh Devices** in the submenu to re-scan audio inputs.
 
 ### Model Selection
 
