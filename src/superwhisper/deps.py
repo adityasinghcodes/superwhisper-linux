@@ -35,7 +35,7 @@ def check_all() -> list[MissingDep]:
         gi.require_version("Gtk", "3.0")
         gi.require_version("AppIndicator3", "0.1")
         from gi.repository import Gtk, AppIndicator3  # noqa: F401
-    except ValueError as e:
+    except (ImportError, ValueError) as e:
         if "AppIndicator3" in str(e):
             missing.append(MissingDep(
                 name="AppIndicator3",
@@ -54,7 +54,7 @@ def check_all() -> list[MissingDep]:
         import gi
         gi.require_version("Notify", "0.7")
         from gi.repository import Notify  # noqa: F401
-    except ValueError:
+    except (ImportError, ValueError):
         missing.append(MissingDep(
             name="libnotify",
             install_cmd="sudo pacman -S libnotify",

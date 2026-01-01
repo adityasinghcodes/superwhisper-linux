@@ -108,7 +108,7 @@ def main():
             return
 
     # Check if another instance is already running
-    from .hotkey import get_pid_file
+    from .hotkey import get_pid_file, _is_superwhisper_pid
     import os as _os
     pid_file = get_pid_file()
     if pid_file.exists():
@@ -116,9 +116,14 @@ def main():
             pid = int(pid_file.read_text().strip())
             # Check if process is still running
             _os.kill(pid, 0)  # Doesn't actually kill, just checks
-            print(f"SuperWhisper is already running (PID {pid})")
-            print("Use 'superwhisper toggle' to control it.")
-            sys.exit(1)
+            if _is_superwhisper_pid(pid):
+                print(f"SuperWhisper is already running (PID {pid})")
+                print("Use 'superwhisper toggle' to control it.")
+                sys.exit(1)
+
+            # PID is alive but not SuperWhisper; treat as stale
+            print(f"Ignoring stale PID file pointing to PID {pid}")
+            pid_file.unlink()
         except (ValueError, ProcessLookupError):
             # PID file is stale, remove it
             pid_file.unlink()
@@ -183,7 +188,7 @@ def main():
             when audio system initialization may be delayed.
             """
             # Wait for audio service and specifically for the saved microphone
-            devices = wait_for_microphone(target_name=self.config.microphone)
+            devices = wait_for_microphone(target_name=self.config.microphone, refresh=True)
 
             for dev in devices:
                 if dev["name"] == self.config.microphone:

@@ -16,6 +16,18 @@ def get_pid_file() -> Path:
     return Path(runtime_dir) / "superwhisper.pid"
 
 
+def _is_superwhisper_pid(pid: int) -> bool:
+    """Best-effort check that a PID belongs to SuperWhisper."""
+    cmdline_path = Path("/proc") / str(pid) / "cmdline"
+    try:
+        data = cmdline_path.read_bytes()
+    except OSError:
+        return False
+
+    cmdline = data.decode(errors="ignore")
+    return "superwhisper" in cmdline or "superwhisper.main" in cmdline
+
+
 class HotkeyListener:
     """Listens for toggle signal (SIGUSR1) from external keybind."""
 
@@ -60,6 +72,9 @@ def send_toggle_signal() -> bool:
 
     try:
         pid = int(pid_file.read_text().strip())
+        if not _is_superwhisper_pid(pid):
+            logger.error("PID file points to non-SuperWhisper process: %d", pid)
+            return False
         os.kill(pid, signal.SIGUSR1)
         logger.debug("Sent SIGUSR1 to PID %d", pid)
         return True

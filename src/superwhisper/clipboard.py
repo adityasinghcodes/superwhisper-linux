@@ -47,11 +47,15 @@ def copy_to_clipboard(text: str) -> bool:
     """Copy text to clipboard using wl-copy (non-blocking)."""
     try:
         # Don't wait for wl-copy - it stays running to serve clipboard on Wayland
-        subprocess.Popen(
-            ["wl-copy", text],
+        proc = subprocess.Popen(
+            ["wl-copy"],
+            stdin=subprocess.PIPE,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
+        if proc.stdin:
+            proc.stdin.write(text.encode("utf-8"))
+            proc.stdin.close()
         logger.debug("Copied %d chars to clipboard", len(text))
         return True
     except OSError as e:

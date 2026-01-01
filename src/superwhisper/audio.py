@@ -2,6 +2,7 @@
 
 import subprocess
 import time
+import shutil
 import numpy as np
 import sounddevice as sd
 from threading import Lock
@@ -9,6 +10,17 @@ from threading import Lock
 from .logging_config import get_logger
 
 logger = get_logger("audio")
+
+
+def _refresh_sounddevice():
+    """Force PortAudio to refresh its device list if possible."""
+    if hasattr(sd, "_terminate") and hasattr(sd, "_initialize"):
+        try:
+            sd._terminate()
+            sd._initialize()
+            logger.debug("Refreshed PortAudio device list")
+        except Exception as e:
+            logger.debug("Failed to refresh PortAudio device list: %s", e)
 
 
 def resample(audio: np.ndarray, orig_sr: int, target_sr: int) -> np.ndarray:
@@ -75,15 +87,22 @@ class AudioRecorder:
             self._audio_data = []
             self._recording = True
 
-        self._stream = sd.InputStream(
-            samplerate=self._device_sample_rate,
-            channels=self.CHANNELS,
-            dtype=np.float32,
-            device=self.device,
-            callback=self._audio_callback,
-        )
-        self._stream.start()
-        logger.debug("Recording started at %dHz", self._device_sample_rate)
+        try:
+            self._stream = sd.InputStream(
+                samplerate=self._device_sample_rate,
+                channels=self.CHANNELS,
+                dtype=np.float32,
+                device=self.device,
+                callback=self._audio_callback,
+            )
+            self._stream.start()
+            logger.debug("Recording started at %dHz", self._device_sample_rate)
+        except Exception as e:
+            with self._lock:
+                self._recording = False
+            self._stream = None
+            logger.error("Failed to start recording: %s", e)
+            raise
 
     def stop(self) -> np.ndarray:
         """Stop recording and return the audio data."""
@@ -122,9 +141,16 @@ class AudioRecorder:
             return self._recording
 
 
-def list_audio_devices() -> list[dict]:
+def list_audio_devices(refresh: bool = False) -> list[dict]:
     """List available audio input devices (filtered to real microphones)."""
-    devices = sd.query_devices()
+    if refresh:
+        _refresh_sounddevice()
+
+    try:
+        devices = sd.query_devices()
+    except Exception as e:
+        logger.warning("Failed to query audio devices: %s", e)
+        return []
     inputs = []
 
     # Keywords that suggest a real microphone
@@ -208,6 +234,10 @@ def wait_for_audio_service(timeout: float = 30.0) -> bool:
     # For PulseAudio systems, fall back to pulseaudio.service
     services = ["wireplumber.service", "pulseaudio.service"]
 
+    if shutil.which("systemctl") is None:
+        logger.debug("systemctl not available; skipping audio service wait")
+        return False
+
     start_time = time.time()
     check_interval = 0.5
 
@@ -236,7 +266,11 @@ def wait_for_audio_service(timeout: float = 30.0) -> bool:
     return False
 
 
-def wait_for_microphone(target_name: str | None = None) -> list[dict]:
+def wait_for_microphone(
+    target_name: str | None = None,
+    timeout: float = 30.0,
+    refresh: bool = False,
+) -> list[dict]:
     """Wait for the audio system to be ready, then return available microphones.
 
     This waits for WirePlumber (PipeWire) or PulseAudio to be fully active,
@@ -250,10 +284,10 @@ def wait_for_microphone(target_name: str | None = None) -> list[dict]:
     """
     # Wait for the audio session manager (WirePlumber/PulseAudio) to be ready
     # Once ready, all devices should be enumerated
-    wait_for_audio_service()
+    wait_for_audio_service(timeout=timeout)
 
     # Now query devices - they should all be available
-    devices = list_audio_devices()
+    devices = list_audio_devices(refresh=refresh)
 
     if target_name:
         found = any(dev["name"] == target_name for dev in devices)

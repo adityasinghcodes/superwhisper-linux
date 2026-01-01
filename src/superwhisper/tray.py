@@ -124,11 +124,18 @@ class TrayIcon:
         menu.show_all()
         return menu
 
-    def _populate_mic_submenu(self, wait_for_target: bool = False):
+    def _populate_mic_submenu(
+        self,
+        wait_for_target: bool = False,
+        refresh: bool = False,
+        timeout: float = 30.0,
+    ):
         """Populate the microphone submenu with available devices.
 
         Args:
             wait_for_target: If True, wait for audio service and target microphone
+            refresh: If True, force a PortAudio device list refresh
+            timeout: Max time to wait for audio service when wait_for_target is True
         """
         if self._mic_submenu is None:
             return
@@ -141,9 +148,9 @@ class TrayIcon:
         # Get devices (wait for target on first build / autostart)
         if wait_for_target:
             target_name = self._current_device_name or self._saved_device_name
-            devices = wait_for_microphone(target_name=target_name)
+            devices = wait_for_microphone(target_name=target_name, refresh=refresh, timeout=timeout)
         else:
-            devices = list_audio_devices()
+            devices = list_audio_devices(refresh=refresh)
 
         default_device = get_default_input_device()
 
@@ -191,7 +198,7 @@ class TrayIcon:
     def _on_refresh_devices(self, widget):
         """Handle refresh devices menu click."""
         logger.info("Refreshing audio devices...")
-        self._populate_mic_submenu(wait_for_target=False)
+        self._populate_mic_submenu(wait_for_target=True, refresh=True, timeout=5.0)
         logger.info("Audio devices refreshed")
 
     def _on_device_toggled(self, widget: Gtk.RadioMenuItem, device_index: int, device_name: str):

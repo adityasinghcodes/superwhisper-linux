@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.2.0] - 2025-12-16
 
 ### Added
+
 - **Auto-paste feature**: Transcribed text is automatically pasted into the active window
   - Smart terminal detection using substring matching (supports Ghostty, Kitty, Alacritty, etc.)
   - Uses Ctrl+Shift+V for terminals, Ctrl+V for other apps
@@ -19,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Progress notifications**: Visual feedback during recording with basic animation
 
 ### Fixed
+
 - **Microphone detection on autostart**: Wait for WirePlumber/PipeWire to be ready
   - No more "microphone not found" errors when app starts at login
   - Properly waits for audio service initialization
@@ -26,12 +28,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Fixes detection for terminals like Ghostty (`com.mitchellh.ghostty`)
 
 ### Changed
+
 - Improved notification update interval to 200ms for better performance
 - Simplified tray UI during recording/processing states
 
 ## [0.1.0] - 2025-12-15
 
 ### Added
+
 - Initial release
 - Local speech-to-text using faster-whisper
 - CUDA GPU acceleration support
